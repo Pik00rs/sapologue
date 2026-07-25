@@ -621,13 +621,28 @@
   .v-ok   { background: var(--success); color: #fff; }
   .v-adj  { background: var(--accent-soft); color: var(--ink); }
   .v-no   { background: var(--alert); color: #fff; }
+  .usage-summary { display: flex; gap: 8px; margin-bottom: 14px; }
+  .usage-stat { flex: 1; background: var(--bg); border: 1px solid var(--line-soft); border-radius: 10px; padding: 12px 8px; text-align: center; }
+  .usage-val { font-size: 18px; font-weight: 700; color: var(--ink); font-family: var(--sans); }
+  .usage-lbl { font-size: 10px; color: var(--ink-faded); text-transform: uppercase; letter-spacing: .05em; margin-top: 2px; }
+  .usage-sub { font-size: 13px; font-weight: 600; color: var(--ink); margin: 16px 0 8px; }
+  .usage-bytask { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .usage-tag { font-size: 11px; background: var(--accent-soft); color: var(--ink); border-radius: 100px; padding: 4px 10px; }
+  .usage-row { border-bottom: 1px solid var(--line-soft); padding: 8px 0; }
+  .usage-row-head { display: flex; justify-content: space-between; align-items: baseline; }
+  .usage-cost { font-family: var(--mono); font-size: 12px; color: var(--ink); font-weight: 600; }
+  .usage-row-body { font-size: 12px; color: var(--ink-soft); margin-top: 2px; }
+
   .prof-card { background: var(--bg-card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 14px; }
+  .form-row2 { display: flex; gap: 10px; }
+  .form-row2 .form-group { flex: 1; }
   .prof-card-title { font-family: var(--sans); font-size: 15px; font-weight: 700; color: var(--ink); margin-bottom: 10px; }
   .prof-hint { font-size: 12px; color: var(--ink-soft); line-height: 1.5; margin-bottom: 12px; }
   .danger-btn { color: var(--alert) !important; border-color: var(--alert) !important; }
   .pal-fam { margin-bottom: 14px; }
   .pal-fam-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-  .pal-band { height: 26px; border-radius: 8px; border: 1px solid var(--line); margin-bottom: 6px; }
+  .pal-band { height: 32px; border-radius: 8px; border: 1px solid var(--line); margin-bottom: 6px; }
+  .pal-fam-label { font-size: 13px; font-weight: 600; color: var(--ink); margin-bottom: 6px; }
   .pal-stops { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
   .pal-stop { display: flex; align-items: center; }
   .pal-stop input[type=color] { width: 30px; height: 30px; border: none; border-radius: 6px; padding: 0; background: none; cursor: pointer; }
@@ -1508,6 +1523,7 @@ async function callClaude(task, { image, mediaType, text } = {}) {
   });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(d.error || 'Erreur ' + r.status);
+  if (d.usage) await recordUsage(task, d.usage);   // suivi conso tokens
   return d.result;
 }
 
@@ -1531,6 +1547,129 @@ let userPalette = { families: [] }; // { families: [ { label, stops:[hex,...] } 
 function escHtml(t){ return (t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function escAttr(t){ return (t||'').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
 
+// ============ SUIVI CONSOMMATION TOKENS + PAIEMENTS ============
+// Tarifs Claude Sonnet (USD par million de tokens). Modifiables si les prix changent.
+const TOKEN_PRICES = { input: 3.0, output: 15.0 };  // $ / 1M tokens
+
+// Noms lisibles par type de demande
+const TASK_LABELS = {
+  analyze: 'Analyse de pièce',
+  review: 'Correction tenue (Miroir)',
+  comment: 'Conseils de tenue',
+  generate: 'Génération complète',
+  generate_incremental: 'Génération incrémentale',
+  palette: 'Génération de palette'
+};
+
+let usageLog = [];     // [{ date, task, label, inTok, outTok, cost }]
+let payments = [];     // [{ date, amount }]
+
+function estimateCost(inTok, outTok){
+  return (inTok/1e6)*TOKEN_PRICES.input + (outTok/1e6)*TOKEN_PRICES.output;
+}
+
+async function recordUsage(task, usage){
+  const inTok = usage.input_tokens || 0;
+  const outTok = usage.output_tokens || 0;
+  const cost = estimateCost(inTok, outTok);
+  usageLog.unshift({
+    date: new Date().toISOString(),
+    task,
+    label: TASK_LABELS[task] || task,
+    inTok, outTok, cost
+  });
+  await saveUsageLog();
+}
+
+async function saveUsageLog(){ await window.storage.set('usageLog', JSON.stringify(usageLog)); }
+async function loadUsageLog(){
+  try { const r = await window.storage.get('usageLog'); usageLog = r && r.value ? JSON.parse(r.value) : []; }
+  catch(e){ usageLog = []; }
+}
+async function savePayments(){ await window.storage.set('payments', JSON.stringify(payments)); }
+async function loadPayments(){
+  try { const r = await window.storage.get('payments'); payments = r && r.value ? JSON.parse(r.value) : []; }
+  catch(e){ payments = []; }
+}
+
+function totalSpent(){ return usageLog.reduce((s,e)=>s+(e.cost||0), 0); }
+function totalPaid(){ return payments.reduce((s,p)=>s+(p.amount||0), 0); }
+
+// Ajout d'un paiement sur le pouce (pour tenir les comptes)
+async function addPayment(){
+  const val = prompt('Montant payé (en $) :');
+  if (val === null) return;
+  const amount = parseFloat(String(val).replace(',', '.'));
+  if (isNaN(amount) || amount <= 0) return alert('Montant invalide.');
+  payments.unshift({ date: new Date().toISOString(), amount });
+  await savePayments();
+  render();
+}
+async function delPayment(i){
+  if(!confirm('Supprimer ce paiement ?'))return;
+  payments.splice(i,1); await savePayments(); render();
+}
+async function clearUsage(){
+  if(!confirm('Vider tout l historique de consommation ? (les paiements sont conserves)'))return;
+  usageLog = []; await saveUsageLog(); render();
+}
+
+function fmtUsd(n){ return '$' + (n||0).toFixed(4).replace(/0+$/,'').replace(/\\.$/,'.00').replace(/\\.([0-9])$/,'.$10'); }
+function fmtUsd2(n){ return '$' + (n||0).toFixed(2); }
+
+function renderUsage(){
+  let html = `<div class="prof-card">
+    <div class="prof-card-title">Consommation IA</div>`;
+
+  const spent = totalSpent();
+  const paid = totalPaid();
+  const balance = paid - spent;
+
+  // Résumé
+  html += `<div class="usage-summary">
+    <div class="usage-stat"><div class="usage-val">${fmtUsd2(spent)}</div><div class="usage-lbl">consommé</div></div>
+    <div class="usage-stat"><div class="usage-val">${fmtUsd2(paid)}</div><div class="usage-lbl">payé</div></div>
+    <div class="usage-stat"><div class="usage-val" style="color:${balance>=0?'var(--success)':'var(--alert)'}">${fmtUsd2(balance)}</div><div class="usage-lbl">solde</div></div>
+  </div>`;
+
+  // Paiements
+  html += `<div class="usage-sub">Paiements</div>
+    <button class="data-btn" onclick="addPayment()">+ Ajouter un paiement</button>`;
+  if (payments.length){
+    html += payments.map((p,i)=>`<div class="log-entry">
+      <div><div class="log-date">${fmtLogDate(p.date)}</div><div class="log-name">${fmtUsd2(p.amount)}</div></div>
+      <button class="log-del" onclick="delPayment(${i})" title="Supprimer">✕</button>
+    </div>`).join('');
+  }
+
+  // Historique par demande
+  html += `<div class="usage-sub">Historique des demandes (${usageLog.length})</div>`;
+  if (!usageLog.length){
+    html += `<p class="prof-hint">Aucune demande IA pour l'instant.</p>`;
+  } else {
+    // récap par type
+    const byTask = {};
+    usageLog.forEach(e=>{ const k=e.label; if(!byTask[k])byTask[k]={n:0,cost:0}; byTask[k].n++; byTask[k].cost+=e.cost; });
+    html += `<div class="usage-bytask">` + Object.entries(byTask).map(([k,v])=>
+      `<div class="usage-tag">${k} · ${v.n}× · ${fmtUsd2(v.cost)}</div>`).join('') + `</div>`;
+
+    html += usageLog.slice(0,40).map(e=>`
+      <div class="usage-row">
+        <div class="usage-row-head">
+          <span class="log-date">${fmtLogDate(e.date)}</span>
+          <span class="usage-cost">${fmtUsd(e.cost)}</span>
+        </div>
+        <div class="usage-row-body">${e.label} · ↑${e.inTok} ↓${e.outTok} tokens</div>
+      </div>`).join('');
+    if (usageLog.length>40) html += `<p class="prof-hint">…et ${usageLog.length-40} de plus.</p>`;
+    html += `<button class="data-btn danger-btn" onclick="clearUsage()">Vider l'historique de consommation</button>`;
+  }
+
+  html += `<p class="prof-hint" style="margin-top:10px">Coûts estimés au tarif Sonnet (${fmtUsd2(TOKEN_PRICES.input)}/M entrée · ${fmtUsd2(TOKEN_PRICES.output)}/M sortie). Indicatif.</p>`;
+  html += `</div>`;
+  return html;
+}
+
 // Prompt complet = infos profil + prompt utilisateur + palette (envoye a l'IA)
 function buildStylePrompt() {
   let out = '';
@@ -1538,8 +1677,11 @@ function buildStylePrompt() {
     const bits = [];
     if (profile.name) bits.push('Prenom : ' + profile.name);
     if (profile.morph) bits.push('Morphologie : ' + profile.morph);
-    if (profile.coloring) bits.push('Teint/cheveux/yeux : ' + profile.coloring);
-    if (profile.context) bits.push('Contexte : ' + profile.context);
+    if (profile.height) bits.push('Taille : ' + profile.height);
+    if (profile.weight) bits.push('Poids : ' + profile.weight);
+    if (profile.hair) bits.push('Cheveux : ' + profile.hair);
+    if (profile.eyes) bits.push('Yeux : ' + profile.eyes);
+    if (profile.skin) bits.push('Teint : ' + profile.skin);
     if (bits.length) out += 'PROFIL\n' + bits.join('\n') + '\n\n';
   }
   out += (userStylePrompt || '').trim();
@@ -1639,34 +1781,37 @@ function palAddStopFromPhoto(f){
   });
 }
 
-// Génère une famille de couleurs (dégradé) depuis une description, via Claude
-async function palGenerateFamily(){
-  const el = document.getElementById('pal-gen-prompt');
+// Génère TOUTE la palette (plusieurs familles + dégradés) depuis une description, via Claude
+async function palGeneratePalette(){
+  const el = document.getElementById('pal-prompt');
   const desc = (el ? el.value : '').trim();
-  if (!desc) return alert('Décris la famille de couleurs voulue.');
+  if (!desc) return alert('Décris ta palette.');
   const btn = document.getElementById('pal-gen-btn');
   const box = document.getElementById('pal-gen-result');
   if (btn) { btn.disabled = true; btn.textContent = 'Génération…'; }
+  if (box) box.innerHTML = '';
   try {
-    const raw = await callClaude('palette', { text: 'Famille voulue : ' + desc });
+    const raw = await callClaude('palette', { text: 'Palette voulue : ' + desc });
     const d = parseJSONLoose(raw);
-    if (!d || !Array.isArray(d.stops) || !d.stops.length) throw new Error('Réponse illisible');
-    const grad = paletteGradient(d.stops);
-    window._palGen = { label: d.label || 'Nouvelle famille', stops: d.stops };
-    if (box) box.innerHTML = `
-      <div class="pal-band" style="background:${grad};margin-top:10px"></div>
-      <div style="font-size:12px;color:var(--ink-soft);margin:6px 0">${escHtml(window._palGen.label)} · ${d.stops.join(' ')}</div>
-      <button class="data-btn" onclick="palAcceptGenerated()">✓ Ajouter à ma palette</button>`;
+    if (!d || !Array.isArray(d.families) || !d.families.length) throw new Error('Réponse illisible');
+    // nettoie / valide
+    const fams = d.families
+      .filter(f => f && Array.isArray(f.stops) && f.stops.length)
+      .map(f => ({ label: f.label || 'Famille', stops: f.stops.filter(h => /^#[0-9a-fA-F]{6}$/.test(h)) }))
+      .filter(f => f.stops.length);
+    if (!fams.length) throw new Error('Aucune couleur valide');
+    userPalette = { families: fams };
+    await saveUserPalette();
+    render();
   } catch(e) {
     if (box) box.innerHTML = `<div class="pal-verdict"><span class="verdict v-no">Échec : ${escHtml(e.message)}</span></div>`;
+    if (btn) { btn.disabled = false; btn.textContent = '✨ Générer ma palette'; }
   }
-  if (btn) { btn.disabled = false; btn.textContent = '✨ Générer le dégradé'; }
 }
 
-async function palAcceptGenerated(){
-  if (!window._palGen) return;
-  userPalette.families.push({ label: window._palGen.label, stops: window._palGen.stops });
-  window._palGen = null;
+async function wipePalette(){
+  if(!confirm('Vider toute ta palette ?'))return;
+  userPalette = { families: [] };
   await saveUserPalette();
   render();
 }
@@ -1689,10 +1834,14 @@ function checkColorFromPhoto(){
 
 async function saveProfilInfos(){
   if (!profile) profile = { createdAt: new Date().toISOString() };
-  profile.name = (document.getElementById('pf-name').value||'').trim() || profile.name || '';
-  profile.morph = (document.getElementById('pf-morph').value||'').trim();
-  profile.coloring = (document.getElementById('pf-color').value||'').trim();
-  profile.context = (document.getElementById('pf-context').value||'').trim();
+  const v = id => { const el = document.getElementById(id); return el ? (el.value||'').trim() : ''; };
+  profile.name = v('pf-name') || profile.name || '';
+  profile.morph = v('pf-morph');
+  profile.height = v('pf-height');
+  profile.weight = v('pf-weight');
+  profile.hair = v('pf-hair');
+  profile.eyes = v('pf-eyes');
+  profile.skin = v('pf-skin');
   profDirty=false;
   await saveProfile(); updateHeader();
   alert('Infos enregistrees \u2713');
@@ -1813,7 +1962,7 @@ async function loadExamplePrompt(){
 }
 
 // ============ VERSION APP (PWA) ============
-const APP_VERSION = '1.4';
+const APP_VERSION = '1.7';
 
 // ============ PHOTOS : IndexedDB ============
 // localStorage sature vite avec des images -> IndexedDB pour les photos de tenues.
@@ -2365,16 +2514,33 @@ function renderProfil() {
   let html = `<h2 class="section-title">Profil</h2>`;
 
   // --- Identité + morpho (ces infos aident Claude à générer) ---
+  const sel = (id, val, opts) => `<select class="form-select" id="${id}" onchange="profDirty=true">
+    <option value="">—</option>
+    ${opts.map(o => `<option value="${o}"${(val||'')===o?' selected':''}>${o}</option>`).join('')}
+  </select>`;
+  const MORPHOS = ['Élancé','Athlétique','Mince','Normal','Costaud','Rond','En V (épaules larges)','En H (droit)','En A (hanches larges)'];
+  const CHEVEUX = ['Blond','Châtain clair','Châtain','Brun','Noir','Roux','Poivre et sel','Gris/Blanc','Rasé/Chauve'];
+  const YEUX = ['Bleu','Vert','Bleu-vert','Gris','Noisette','Marron clair','Marron','Noir'];
+  const TEINTS = ['Très clair','Clair','Clair sous-ton chaud','Clair sous-ton froid','Medium','Medium sous-ton chaud','Medium sous-ton froid','Mat','Foncé','Très foncé'];
+
   html += `<div class="prof-card">
     <div class="prof-card-title">Moi</div>
     <div class="form-group"><label class="form-label">Prénom</label>
       <input class="form-input" id="pf-name" value="${escAttr(pr.name)}" oninput="profDirty=true"></div>
-    <div class="form-group"><label class="form-label">Morphologie / taille (optionnel)</label>
-      <input class="form-input" id="pf-morph" value="${escAttr(pr.morph||'')}" placeholder="Ex : 1m87, élancé" oninput="profDirty=true"></div>
-    <div class="form-group"><label class="form-label">Teint / cheveux / yeux (optionnel)</label>
-      <input class="form-input" id="pf-color" value="${escAttr(pr.coloring||'')}" placeholder="Ex : sous-ton chaud, cheveux châtain, yeux bleu-vert" oninput="profDirty=true"></div>
-    <div class="form-group"><label class="form-label">Contexte (optionnel)</label>
-      <input class="form-input" id="pf-context" value="${escAttr(pr.context||'')}" placeholder="Ex : climat chaud, sorties casual + dîners" oninput="profDirty=true"></div>
+    <div class="form-group"><label class="form-label">Morphologie</label>
+      ${sel('pf-morph', pr.morph, MORPHOS)}</div>
+    <div class="form-row2">
+      <div class="form-group"><label class="form-label">Taille</label>
+        <input class="form-input" id="pf-height" value="${escAttr(pr.height||'')}" placeholder="Ex : 187 cm" oninput="profDirty=true"></div>
+      <div class="form-group"><label class="form-label">Poids</label>
+        <input class="form-input" id="pf-weight" value="${escAttr(pr.weight||'')}" placeholder="Ex : 70 kg" oninput="profDirty=true"></div>
+    </div>
+    <div class="form-group"><label class="form-label">Couleur des cheveux</label>
+      ${sel('pf-hair', pr.hair, CHEVEUX)}</div>
+    <div class="form-group"><label class="form-label">Couleur des yeux</label>
+      ${sel('pf-eyes', pr.eyes, YEUX)}</div>
+    <div class="form-group"><label class="form-label">Teint de peau</label>
+      ${sel('pf-skin', pr.skin, TEINTS)}</div>
     <button class="data-btn" onclick="saveProfilInfos()">Enregistrer mes infos</button>
   </div>`;
 
@@ -2385,48 +2551,40 @@ function renderProfil() {
     <textarea class="form-input" id="style-text" style="min-height:220px;line-height:1.5" oninput="stylePromptDirty=true"
       placeholder="Ex : Chic décontracté, old money méditerranéen. Chaud près du visage. Un seul accent par tenue. Manches de chemise en rouleau italien...">${escHtml(userStylePrompt)}</textarea>
     <button class="data-btn" onclick="saveStylePrompt()">Enregistrer ma prompt</button>
-    <button class="data-btn" onclick="loadExamplePrompt()">Charger l'exemple (old money)</button>
   </div>`;
 
-  // --- Palette (dégradés) ---
+  // --- Palette (dégradés, pilotée par prompt) ---
   html += `<div class="prof-card">
     <div class="prof-card-title">Ma palette</div>
-    <p class="prof-hint">Tes familles de couleurs, en dégradés (souples). Claude les respecte pour composer. Ajoute une couleur depuis une photo, et vérifie si une couleur est dans ta palette.</p>`;
+    <p class="prof-hint">Tes familles de couleurs, chacune en dégradé. Claude les respecte pour composer et corriger tes tenues.</p>`;
 
-  (userPalette.families || []).forEach((f, fi) => {
+  if (!(userPalette.families || []).length) {
+    html += `<p class="prof-hint" style="text-align:center;font-style:italic">Pas encore de palette. Décris-la ci-dessous et Claude la génère.</p>`;
+  }
+  (userPalette.families || []).forEach((f) => {
     const grad = paletteGradient(f.stops);
     html += `<div class="pal-fam">
-      <div class="pal-fam-head">
-        <input class="pal-label" value="${escAttr(f.label)}" onchange="palSetLabel(${fi}, this.value)">
-        <button class="pal-x" onclick="palDelFamily(${fi})" title="Supprimer">✕</button>
-      </div>
+      <div class="pal-fam-label">${escHtml(f.label)}</div>
       <div class="pal-band" style="background:${grad}"></div>
-      <div class="pal-stops">`;
-    (f.stops || []).forEach((hex, si) => {
-      html += `<div class="pal-stop">
-        <input type="color" value="${hex}" onchange="palSetStop(${fi},${si},this.value)">
-        <button class="pal-stopx" onclick="palDelStop(${fi},${si})">✕</button>
-      </div>`;
-    });
-    html += `<button class="pal-add" onclick="palAddStop(${fi})">+</button>
-      <button class="pal-add" onclick="palAddStopFromPhoto(${fi})">📷 photo</button>
-      </div></div>`;
+    </div>`;
   });
 
-  html += `<button class="data-btn" onclick="palAddFamily()">+ Ajouter une famille</button>
-    <button class="data-btn" onclick="loadExamplePalette()">Charger l'exemple (old money)</button>`;
-
-  // Générer une famille par description (Claude)
+  // Générer TOUTE la palette depuis une prompt (Claude)
   html += `<div class="pal-gen">
-      <div class="prof-card-title" style="font-size:13px">Générer une famille avec Claude</div>
-      <p class="prof-hint">Décris une famille de couleurs, Claude compose le dégradé.</p>
-      <textarea class="form-input" id="pal-gen-prompt" style="min-height:70px"
-        placeholder="Ex : des verts olive et kaki terreux, du plus clair au plus foncé"></textarea>
-      <button class="data-btn" id="pal-gen-btn" onclick="palGenerateFamily()">✨ Générer le dégradé</button>
+      <div class="prof-card-title" style="font-size:13px">Générer ma palette avec Claude</div>
+      <p class="prof-hint">Décris ta palette (ambiance, couleurs que tu aimes, ce que tu évites). Claude crée toutes les catégories avec leurs dégradés.</p>
+      <textarea class="form-input" id="pal-prompt" style="min-height:90px"
+        placeholder="Ex : palette chaude méditerranéenne — neutres sable/tabac/chocolat, des complémentaires olive et marine, un accent terracotta, et j'évite le noir et les gris froids près du visage."></textarea>
+      <button class="data-btn" id="pal-gen-btn" onclick="palGeneratePalette()">✨ Générer ma palette</button>
       <div id="pal-gen-result"></div>
     </div>`;
 
-  // Vérif d'une couleur / photo
+  html += `<button class="data-btn" onclick="loadExamplePalette()">Charger l'exemple (old money)</button>`;
+  if ((userPalette.families || []).length) {
+    html += `<button class="data-btn danger-btn" onclick="wipePalette()">Vider ma palette</button>`;
+  }
+
+  // Vérif d'une couleur / photo (signature de l'outil « ma palette »)
   html += `<div class="pal-check">
       <div class="prof-card-title" style="font-size:13px">Vérifier une couleur</div>
       <p class="prof-hint">Prends une photo d'un vêtement : est-il dans ta palette ?</p>
@@ -2435,13 +2593,17 @@ function renderProfil() {
     </div>`;
   html += `</div>`;
 
-  // --- Zone dangereuse ---
+  
+// --- Zone dangereuse ---
   html += `<div class="prof-card">
     <div class="prof-card-title">Réinitialiser</div>
     <button class="data-btn danger-btn" onclick="wipePieces()">Vider toutes mes pièces</button>
     <button class="data-btn danger-btn" onclick="wipeOutfits()">Vider toutes mes tenues</button>
     <button class="data-btn danger-btn" onclick="wipeAll()">Tout réinitialiser (pièces + tenues + journal)</button>
   </div>`;
+
+  // --- Consommation IA + paiements ---
+  html += renderUsage();
 
   // --- Données ---
   html += `<div class="prof-card">
@@ -3522,7 +3684,7 @@ async function exportData() {
     app: 'garde-robe',
     version: APP_VERSION,
     exportedAt: new Date().toISOString(),
-    profile, userStylePrompt, userPalette, generatedOutfits,
+    profile, userStylePrompt, userPalette, generatedOutfits, usageLog, payments,
     wardrobe, wishlist, skincare, packed, wearLog, photos
   };
   const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
@@ -3544,6 +3706,8 @@ async function importData(input) {
     if (typeof d.userStylePrompt === 'string') { userStylePrompt = d.userStylePrompt; await saveUserStyle(); }
     if (d.userPalette) { userPalette = d.userPalette; await saveUserPalette(); }
     if (d.generatedOutfits) { generatedOutfits = d.generatedOutfits; await saveGenerated(); rebuildCatalog(); }
+    if (d.usageLog) { usageLog = d.usageLog; await saveUsageLog(); }
+    if (d.payments) { payments = d.payments; await savePayments(); }
     if (d.wardrobe) { wardrobe = d.wardrobe; await saveWardrobe(); }
     if (d.wishlist) { wishlist = d.wishlist; await saveWishlist(); }
     if (d.skincare) { skincare = d.skincare; await saveSkincare(); }
@@ -3639,6 +3803,8 @@ async function init() {
   await loadProfile();
   await loadUserStyle();
   await loadUserPalette();
+  await loadUsageLog();
+  await loadPayments();
   photoCache = await loadAllPhotos();
   updateHeader();
 

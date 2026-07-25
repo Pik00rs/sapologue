@@ -81,13 +81,14 @@ N'utilise QUE les id fournis.`
   },
 
   palette: {
-    max_tokens: 600,
-    instructions: `TÂCHE : l'utilisateur décrit une famille de couleurs qu'il veut ajouter à sa palette. Génère un dégradé cohérent de 4 à 6 couleurs, ordonnées du plus clair au plus foncé (ou dans un ordre logique de dégradé), fidèles à sa description et à son style ci-dessus.
+    max_tokens: 900,
+    instructions: `TÂCHE : l'utilisateur décrit sa palette (ambiance, couleurs qu'il aime, ce qu'il évite). Génère une palette structurée complète en 3 à 5 familles — typiquement : neutres chauds (ou froids selon le style), complémentaires, accents, et une famille « à éviter » près du visage. Chaque famille = un dégradé de 4 à 6 couleurs cohérentes, ordonnées du plus clair au plus foncé.
 
-Réponds UNIQUEMENT en JSON valide, sans préambule ni backticks :
+Tiens compte du style et du profil ci-dessus. Réponds UNIQUEMENT en JSON valide, sans préambule ni backticks :
 {
-  "label": "nom court de la famille en français",
-  "stops": ["#rrggbb", "#rrggbb", "#rrggbb", "#rrggbb"]
+  "families": [
+    { "label": "nom de la famille en français", "stops": ["#rrggbb","#rrggbb","#rrggbb","#rrggbb"] }
+  ]
 }`
   }
 };
