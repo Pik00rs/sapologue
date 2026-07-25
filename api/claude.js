@@ -78,6 +78,17 @@ Vise 3 à 10 tenues par nouvelle pièce, zéro faute.
 Réponds UNIQUEMENT en JSON valide, même schéma que la génération complète :
 { "outfits": [ { "name","level","vibe","description","pieces","scarf","watch","hat","tips":{"tuck","sleeves","scarf","note"} } ] }
 N'utilise QUE les id fournis.`
+  },
+
+  palette: {
+    max_tokens: 600,
+    instructions: `TÂCHE : l'utilisateur décrit une famille de couleurs qu'il veut ajouter à sa palette. Génère un dégradé cohérent de 4 à 6 couleurs, ordonnées du plus clair au plus foncé (ou dans un ordre logique de dégradé), fidèles à sa description et à son style ci-dessus.
+
+Réponds UNIQUEMENT en JSON valide, sans préambule ni backticks :
+{
+  "label": "nom court de la famille en français",
+  "stops": ["#rrggbb", "#rrggbb", "#rrggbb", "#rrggbb"]
+}`
   }
 };
 
