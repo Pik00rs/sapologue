@@ -1,0 +1,5 @@
+{
+  "version": "11.0",
+  "date": "2026-07-24", "notes": "Generation des tenues 100% par Claude, incrementale a l ajout de piece",
+  "notes": "PWA installable + hors-ligne, journal de port, photos de tenues, export/import"
+}

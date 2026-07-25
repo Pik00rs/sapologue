@@ -1,0 +1,7 @@
+{
+  "name": "garde-robe",
+  "version": "11.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Garde-robe digitale — PWA + analyse IA"
+}
