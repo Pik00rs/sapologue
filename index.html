@@ -1813,7 +1813,7 @@ async function loadExamplePrompt(){
 }
 
 // ============ VERSION APP (PWA) ============
-const APP_VERSION = '1.3';
+const APP_VERSION = '1.4';
 
 // ============ PHOTOS : IndexedDB ============
 // localStorage sature vite avec des images -> IndexedDB pour les photos de tenues.
@@ -2978,176 +2978,183 @@ async function saveEdit(id) {
   render();
 }
 
-let addPhoto = null;      // dataURL de la photo de la piece
-let addAnalyzing = false;
+// ============ AJOUT DE PIÈCES : flux multi-photos ============
+// On choisit 1..N photos -> chacune analysée par Claude -> revue/correction -> validation groupée.
+let addQueue = [];      // [{ photo, name, brand, color, type, category, note, family, material, tuckable, status }]
+let addIndex = 0;       // pièce en cours de revue
 
-// Analyse la photo -> pre-remplit le formulaire
-async function analyzeNewPiece() {
-  if (!addPhoto || addAnalyzing) return;
-  addAnalyzing = true;
-  const btn = document.getElementById('ad-analyze');
-  if (btn) { btn.disabled = true; btn.textContent = 'Analyse en cours…'; }
-  try {
-    const out = await callClaude('analyze', {
-      image: addPhoto.split(',')[1],
-      mediaType: 'image/jpeg',
-      text: "Analyse cette piece de vetement."
-    });
-    const d = parseJSONLoose(out);
-    if (!d) throw new Error('Reponse illisible');
-
-    const set = (id, v) => { const el = document.getElementById(id); if (el && v !== undefined && v !== null) el.value = v; };
-    set('ad-name', d.name);
-    set('ad-color', d.color);
-    set('ad-color-text', d.color);
-    if (d.type) {
-      const sel = document.getElementById('ad-type');
-      if (sel && [...sel.options].some(o => o.value === d.type)) sel.value = d.type;
-    }
-    set('ad-note', d.note);
-    // memorise la famille et le tuck pour le moteur
-    window._aiMeta = { family: d.family, material: d.material, faceOk: d.faceOk };
-
-    const info = document.getElementById('ad-ai-info');
-    if (info) {
-      info.innerHTML = `✓ ${d.colorName || ''} · ${d.material || ''} · famille <b>${d.family || '?'}</b>`
-        + (d.inPalette === false ? ' · <span style="color:var(--alert)">hors palette</span>' : ' · dans ta palette')
-        + (d.faceOk === false ? ' · <span style="color:var(--alert)">a porter en layer</span>' : '');
-    }
-  } catch (e) {
-    alert("Analyse impossible : " + e.message);
-  }
-  addAnalyzing = false;
-  if (btn) { btn.disabled = false; btn.textContent = '🔍 Analyser la photo'; }
+const ALL_TYPES = () => Object.keys(WASH_THRESHOLDS);
+function categoryOfType(type){
+  for (const [cat, types] of Object.entries(CATEGORIES)) if (types.includes(type)) return cat;
+  return 'accessoire';
 }
 
-function pickAddPhoto() {
+function openAddItem() {
+  addQueue = [];
+  addIndex = 0;
+  document.getElementById('modalContent').innerHTML = `
+    <div class="modal-handle"></div>
+    <div class="modal-name">Ajouter des pièces</div>
+    <div class="modal-brand" style="margin-bottom:20px">une ou plusieurs photos, tout est pré-rempli</div>
+    <div class="ai-drop" onclick="pickAddPhotos()">
+      📷<br><br>Choisir des photos<br>
+      <span style="font-size:11px;color:var(--ink-faded)">une pièce par photo · Claude détecte nom, couleur, type, matière</span>
+    </div>
+    <div class="actions" style="margin-top:16px">
+      <button class="btn" style="width:100%;border:none;background:transparent" onclick="closeModal()">Annuler</button>
+    </div>`;
+  document.getElementById('modalBackdrop').classList.add('show');
+}
+
+// Sélection multiple + compression + analyse en série
+function pickAddPhotos() {
   const inp = document.createElement('input');
   inp.type = 'file';
   inp.accept = 'image/*';
+  inp.multiple = true;
   inp.onchange = async () => {
-    const f = inp.files && inp.files[0];
-    if (!f) return;
-    try {
-      addPhoto = await compressImage(f, 900, 0.75);
-      const box = document.getElementById('ad-photo-box');
-      if (box) box.innerHTML =
-        `<img class="ai-preview" src="${addPhoto}" alt="Piece">
-         <button class="photo-btn" id="ad-analyze" onclick="analyzeNewPiece()" style="width:100%;background:var(--accent-soft);color:var(--ink);font-weight:600">🔍 Analyser la photo</button>
-         <div class="field-ai" id="ad-ai-info"></div>`;
-    } catch (e) { alert('Image illisible.'); }
+    const files = Array.from(inp.files || []);
+    if (!files.length) return;
+    // 1) compresser toutes les photos
+    document.getElementById('modalContent').innerHTML = `
+      <div class="modal-handle"></div>
+      <div class="modal-name">Analyse…</div>
+      <div class="ai-spin" id="add-progress">Préparation de ${files.length} photo(s)…</div>`;
+    addQueue = [];
+    for (const f of files) {
+      try {
+        const photo = await compressImage(f, 900, 0.75);
+        addQueue.push({ photo, name:'', brand:'', color:'#a37c4c', type: ALL_TYPES()[0],
+          category:'accessoire', note:'', family:undefined, material:undefined, tuckable:undefined, status:'pending' });
+      } catch(e){}
+    }
+    // 2) analyser chaque photo en série (avec progression)
+    for (let i=0;i<addQueue.length;i++){
+      const prog = document.getElementById('add-progress');
+      if (prog) prog.textContent = `Analyse ${i+1} / ${addQueue.length}…`;
+      await analyzeQueueItem(i);
+    }
+    // 3) revue de la première pièce
+    addIndex = 0;
+    renderAddReview();
   };
   inp.click();
 }
 
-function openAddItem() {
-  editingItem = null;
-  addPhoto = null;
-  window._aiMeta = null;
-  document.getElementById('modalContent').innerHTML = `
-    <div class="modal-handle"></div>
-    <div class="modal-name">Nouvelle pièce</div>
-    <div class="modal-brand" style="margin-bottom:20px">ajouter à la garde-robe</div>
-
-    <div class="form-group" id="ad-photo-box">
-      <div class="ai-drop" onclick="pickAddPhoto()">
-        📷<br><br>Photo de la pièce<br>
-        <span style="font-size:11px;color:var(--ink-faded)">Claude détecte couleur, type et matière</span>
-      </div>
-    </div>
-
-    <div class="form-group">
-      <label class="form-label">Nom</label>
-      <input class="form-input" id="ad-name" placeholder="Ex : Chemise lin écru">
-    </div>
-    <div class="form-group">
-      <label class="form-label">Marque</label>
-      <input class="form-input" id="ad-brand" placeholder="Ex : Polo RL">
-    </div>
-    <div class="form-group">
-      <label class="form-label">Couleur exacte</label>
-      <div class="color-picker-row">
-        <input type="color" id="ad-color" value="#a37c4c">
-        <input class="form-input" id="ad-color-text" value="#a37c4c">
-      </div>
-    </div>
-    <div class="form-group">
-      <label class="form-label">Type</label>
-      <select class="form-select" id="ad-type">
-        ${Object.keys(WASH_THRESHOLDS).map(t => `<option value="${t}">${t}</option>`).join('')}
-      </select>
-    </div>
-    <div class="form-group">
-      <label class="form-label">Note (optionnel)</label>
-      <input class="form-input" id="ad-note" placeholder="détails, contexte...">
-    </div>
-
-    <div class="actions">
-      <button class="btn" onclick="closeModal()">Annuler</button>
-      <button class="btn primary" onclick="saveAdd()">Ajouter</button>
-    </div>
-  `;
-
-  document.getElementById('ad-color').addEventListener('input', e => {
-    document.getElementById('ad-color-text').value = e.target.value;
-  });
-  document.getElementById('ad-color-text').addEventListener('input', e => {
-    document.getElementById('ad-color').value = e.target.value;
-  });
-
-  document.getElementById('modalBackdrop').classList.add('show');
+async function analyzeQueueItem(i){
+  const it = addQueue[i];
+  try {
+    const out = await callClaude('analyze', { image: it.photo.split(',')[1], mediaType:'image/jpeg', text:'Analyse cette pièce.' });
+    const d = parseJSONLoose(out);
+    if (d){
+      it.name = d.name || '';
+      it.color = d.color || it.color;
+      it.type = (d.type && ALL_TYPES().includes(d.type)) ? d.type : it.type;
+      it.category = d.category || categoryOfType(it.type);
+      it.note = d.note || '';
+      it.family = d.family;
+      it.material = d.material;
+      it.tuckable = d.tuckable;
+      it.inPalette = d.inPalette;
+      it.faceOk = d.faceOk;
+      it.status = 'ok';
+    } else { it.status = 'error'; }
+  } catch(e){ it.status = 'error'; it.errMsg = e.message; }
 }
 
-async function saveAdd() {
-  const name = document.getElementById('ad-name').value.trim();
-  if (!name) return alert('Donne un nom à la pièce');
-  const type = document.getElementById('ad-type').value;
-  let category = 'accessoire';
-  for (const [cat, types] of Object.entries(CATEGORIES)) {
-    if (types.includes(type)) { category = cat; break; }
+// Revue / correction d'une pièce de la file
+function renderAddReview(){
+  const n = addQueue.length;
+  const it = addQueue[addIndex];
+  const typeOpts = ALL_TYPES().map(t => `<option value="${t}"${t===it.type?' selected':''}>${t}</option>`).join('');
+  document.getElementById('modalContent').innerHTML = `
+    <div class="modal-handle"></div>
+    <div class="modal-name">Pièce ${addIndex+1} / ${n}</div>
+    <div class="modal-brand" style="margin-bottom:14px">${it.status==='error' ? '⚠️ analyse échouée — remplis à la main' : 'vérifie et corrige'}</div>
+
+    <img class="ai-preview" src="${it.photo}" alt="pièce">
+
+    <div class="form-group"><label class="form-label">Nom</label>
+      <input class="form-input" id="rv-name" value="${escAttr(it.name)}" placeholder="Ex : Chemise lin écru"></div>
+
+    <div class="form-group"><label class="form-label">Couleur</label>
+      <div class="color-picker-row">
+        <input type="color" id="rv-color" value="${it.color}">
+        <input class="form-input" id="rv-color-text" value="${it.color}">
+      </div></div>
+
+    <div class="form-group"><label class="form-label">Type</label>
+      <select class="form-select" id="rv-type">${typeOpts}</select></div>
+
+    <div class="form-group"><label class="form-label">Marque</label>
+      <input class="form-input" id="rv-brand" value="${escAttr(it.brand)}" placeholder="Ex : Polo RL"></div>
+
+    <div class="form-group"><label class="form-label">Note (optionnel)</label>
+      <input class="form-input" id="rv-note" value="${escAttr(it.note)}" placeholder="détails, contexte..."></div>
+
+    ${it.inPalette===false ? '<p class="prof-hint" style="color:var(--alert)">Hors palette selon ton profil.</p>' : ''}
+
+    <div class="actions">
+      ${addIndex>0 ? '<button class="btn" onclick="addReviewNav(-1)">Précédent</button>' : '<button class="btn" onclick="closeModal()">Annuler</button>'}
+      ${addIndex < n-1
+        ? '<button class="btn primary" onclick="addReviewNav(1)">Suivant</button>'
+        : '<button class="btn primary" onclick="commitAddQueue()">Tout ajouter</button>'}
+    </div>
+    <p style="font-size:11px;color:var(--ink-faded);text-align:center;margin-top:10px">${n} pièce(s) — ajoutées ensemble à la fin</p>`;
+
+  document.getElementById('rv-color').addEventListener('input', e => document.getElementById('rv-color-text').value = e.target.value);
+  document.getElementById('rv-color-text').addEventListener('input', e => document.getElementById('rv-color').value = e.target.value);
+}
+
+// Sauvegarde les champs édités de la pièce courante
+function stashAddReview(){
+  const it = addQueue[addIndex];
+  if (!it) return;
+  it.name = document.getElementById('rv-name').value.trim();
+  it.color = document.getElementById('rv-color').value;
+  it.type = document.getElementById('rv-type').value;
+  it.category = categoryOfType(it.type);
+  it.brand = document.getElementById('rv-brand').value.trim();
+  it.note = document.getElementById('rv-note').value.trim();
+}
+
+function addReviewNav(dir){
+  stashAddReview();
+  addIndex = Math.max(0, Math.min(addQueue.length-1, addIndex + dir));
+  renderAddReview();
+}
+
+// Valide toute la file d'un coup
+async function commitAddQueue(){
+  stashAddReview();
+  let added = 0;
+  for (const it of addQueue){
+    if (!it.name) it.name = it.type;   // filet de sécurité
+    const id = 'u' + Date.now() + '-' + added;
+    const item = {
+      id, name: it.name, brand: it.brand || '—', color: it.color,
+      type: it.type, category: it.category, wears: 0,
+      note: it.note || undefined, family: it.family || undefined,
+      material: it.material || undefined,
+      tuckable: (it.tuckable !== undefined) ? it.tuckable : (it.type==='chino'||it.type==='pantalon-lin')
+    };
+    wardrobe.push(item);
+    if (it.photo){ await savePhoto('piece-'+id, it.photo); photoCache['piece-'+id] = it.photo; }
+    if (['haut','bas','surcouche','chaussure'].includes(item.category) && !pendingPieces.includes(id)) pendingPieces.push(id);
+    added++;
   }
-  const meta = window._aiMeta || {};
-  const id = 'u' + Date.now();
-  const newItem = {
-    id,
-    name,
-    brand: document.getElementById('ad-brand').value || '—',
-    color: document.getElementById('ad-color').value,
-    type,
-    category,
-    wears: 0,
-    note: document.getElementById('ad-note').value || undefined,
-    family: meta.family || undefined,
-    material: meta.material || undefined,
-    tuckable: (type === 'chino' || type === 'pantalon-lin') ? undefined : undefined
-  };
-  wardrobe.push(newItem);
   await saveWardrobe();
-
-  // Photo de la piece
-  if (addPhoto) {
-    await savePhoto('piece-' + id, addPhoto);
-    photoCache['piece-' + id] = addPhoto;
-  }
-
-  // File d'attente : on regroupe les ajouts, la generation se lance a la demande
-  if (['haut','bas','surcouche','chaussure'].includes(category)) {
-    if (!pendingPieces.includes(id)) { pendingPieces.push(id); await savePending(); }
-  }
-
-  addPhoto = null;
-  window._aiMeta = null;
+  await savePending();
+  addQueue = []; addIndex = 0;
   closeModal();
   render();
 
   const pending = pendingPieces.length;
-  if (pending > 0) {
-    if (confirm(`✓ ${name} ajoutée.\n\n${pending} pièce(s) en attente de génération. Composer leurs tenues maintenant ?`)) {
-      currentTab = 'outfits';
-      await runIncrementalGen();
-    }
+  if (pending > 0 && confirm(`✓ ${added} pièce(s) ajoutée(s).\\n\\n${pending} pièce(s) en attente. Composer leurs tenues maintenant ?`)) {
+    goTab('outfits');
+    await runIncrementalGen();
   } else {
-    alert(`✓ ${name} ajoutée à ta garde-robe.`);
+    alert(`✓ ${added} pièce(s) ajoutée(s) à ta garde-robe.`);
   }
 }
 
