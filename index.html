@@ -621,6 +621,16 @@
   .v-ok   { background: var(--success); color: #fff; }
   .v-adj  { background: var(--accent-soft); color: var(--ink); }
   .v-no   { background: var(--alert); color: #fff; }
+  .pal-group { background: var(--bg-card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; }
+  .pal-group-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .pal-label { flex: 1; font-family: var(--sans); font-size: 14px; font-weight: 600; color: var(--ink); border: none; background: transparent; border-bottom: 1px solid var(--line); padding: 4px 0; }
+  .pal-x, .pal-chipx { background: transparent; border: none; color: var(--ink-faded); cursor: pointer; font-size: 14px; padding: 2px 6px; }
+  .pal-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .pal-chip { display: flex; align-items: center; gap: 4px; background: var(--bg); border: 1px solid var(--line-soft); border-radius: 100px; padding: 3px 6px 3px 3px; }
+  .pal-chip input[type=color] { width: 26px; height: 26px; border: none; border-radius: 50%; padding: 0; background: none; cursor: pointer; }
+  .pal-cname { width: 76px; border: none; background: transparent; font-size: 12px; color: var(--ink); font-family: var(--sans); }
+  .pal-add { background: var(--bg); border: 1px dashed var(--line); border-radius: 100px; padding: 6px 12px; font-size: 12px; color: var(--ink-soft); cursor: pointer; font-family: var(--sans); }
+
   .gen-panel { margin-bottom: 16px; }
   .gen-row {
     display: flex; align-items: center; justify-content: space-between; gap: 10px;
@@ -1151,14 +1161,15 @@
 <header class="app-header">
   <div class="header-top">
     <div class="brand">Garde-robe</div>
-    <div class="date" id="todayDate">—</div>
+    <div class="date" id="profileName" onclick="openProfile()" style="cursor:pointer">—</div>
   </div>
-  <div class="tagline">old money mediterranean · Macau 2026</div>
+  <div class="tagline" id="tagline">ta garde-robe, ton style</div>
 </header>
 
 <nav class="nav">
   <button class="nav-item active" data-tab="wardrobe">Pièces</button>
   <button class="nav-item" data-tab="palette">Palette</button>
+  <button class="nav-item" data-tab="style">Prompt</button>
   <button class="nav-item" data-tab="outfits">Tenues</button>
   <button class="nav-item" data-tab="random">Aléatoire</button>
   <button class="nav-item" data-tab="wishlist">À acheter</button>
@@ -1179,18 +1190,9 @@
 // ============ MOTEUR DE TENUES (100% LOCAL, ZERO TOKEN) ============
 // Familles couleur : wl=clair chaud, wd=chaud profond, ol=olive,
 // co=marine/froid, cl=chambray/bleu clair, ac=accent, nk=noir/anthracite
-const FAMILY_OF = {
-  t1:'wl', t5:'wl', t9:'wl', p1:'wl', p3:'wl', m2:'wl', sh4:'wl', pn1:'wl', pn3:'wl', s2:'wl', s4:'wl',
-  t4:'wd', t15:'wd', t17:'wd', sh6:'wd', m1:'wd', pn4:'wd', pn7:'wd',
-  t3:'ol', sh3:'ol', pn5:'ol', pn8:'ol', s5:'ol',
-  t7:'co', t16:'co', t18:'co', p2:'co', sh1:'co', sh2:'co', pn2:'co', pn6:'co', pn9:'co', s1:'co',
-  t2:'cl', sh5:'cl',
-  t14:'ac', t8:'ac', s3:'ac',
-  t10:'nk', t11:'nk', t12:'nk', t13:'nk'
-};
-
-// Bas a passants (tuck possible + ceinture). Le reste = cordon elastique.
-const TUCKABLE = ['pn1','pn2','pn3','pn4','pn5','pn8','s5'];
+// Version multi-utilisateurs : la famille couleur vient de la piece
+// (definie a l'ajout par l'analyse IA) ou est estimee depuis la couleur.
+const FAMILY_OF = {};
 
 // Estime la famille d'une couleur hex si la piece n'en a pas
 function guessFamily(hex) {
@@ -1208,12 +1210,10 @@ function guessFamily(hex) {
 }
 function famOf(item) {
   if (!item) return 'wl';
-  return item.family || FAMILY_OF[item.id] || guessFamily(item.color);
+  return item.family || guessFamily(item.color);
 }
 function tuckableOf(item) {
-  if (!item) return false;
-  if (item.tuckable !== undefined) return item.tuckable;
-  return TUCKABLE.includes(item.id);
+  return !!(item && item.tuckable);
 }
 
 // Regles d'accord haut (au visage) / bas
@@ -1295,16 +1295,14 @@ function outfitFaults(o) {
   const tf = face ? famOf(face) : null;
   const bf = bas ? famOf(bas) : null;
 
-  if (tf === 'ol' && bf === 'ol') faults.push('olive+olive');
-  if (tf === 'co' && bf === 'co') faults.push('marine+marine au visage');
-  if (pieces.filter(p => famOf(p) === 'ac').length >= 2) faults.push('double accent');
+  // Regles universelles seulement (les regles de couleur dependent de la palette
+  // de chaque utilisateur : elles sont deleguees a Claude via la prompt).
+  if (pieces.filter(p => famOf(p) === 'ac').length >= 2) faults.push('deux accents');
+  if (pieces.filter(p => p.category === 'chaussure').length > 1) faults.push('deux paires de chaussures');
 
-  // noir seul au visage : autorise seulement si une chemise/veste ouverte le couvre
-  const hasCover = pieces.some(p => p.category === 'surcouche' || (p.category === 'haut' && p.type && p.type.startsWith('chemise')));
-  if (tf === 'nk' && hauts.length < 2 && !hasCover) faults.push('noir seul au visage');
-
-  // ceinture sur cordon
-  if (o.pieces && o.pieces.includes('a3') && bas && !tuckableOf(bas)) faults.push('ceinture sur cordon');
+  // ceinture : seulement si le bas est a passants
+  const beltId = wardrobe.find(w => w.type === 'ceinture');
+  if (beltId && o.pieces && o.pieces.includes(beltId.id) && bas && !tuckableOf(bas)) faults.push('ceinture sur cordon');
 
   return faults;
 }
@@ -1493,7 +1491,7 @@ async function callClaude(task, { image, mediaType, text } = {}) {
   const r = await fetch(API_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ task, image, mediaType, text })
+    body: JSON.stringify({ task, image, mediaType, text, stylePrompt: buildStylePrompt() })
   });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(d.error || 'Erreur ' + r.status);
@@ -1509,8 +1507,145 @@ function parseJSONLoose(txt) {
   try { return JSON.parse(t); } catch (e) { return null; }
 }
 
+// ============ PROFIL / PALETTE / PROMPT (multi-utilisateurs) ============
+let profile = null;                 // { name, createdAt }
+let userStylePrompt = '';           // texte libre : esthetique + regles + ton
+let stylePromptDirty = false;
+let userPalette = { groups: [] };   // { groups: [ { label, colors:[{name,hex}] } ] }
+
+function escHtml(t){ return (t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escAttr(t){ return (t||'').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+
+// Prompt complet = prompt utilisateur + palette formatee (envoye a l'IA)
+function buildStylePrompt() {
+  let out = (userStylePrompt || '').trim();
+  if (userPalette.groups.length) {
+    out += '\n\nPALETTE (familles de couleurs a respecter) :';
+    userPalette.groups.forEach(g => {
+      const cols = g.colors.map(c => `${c.name} (${c.hex})`).join(', ');
+      out += `\n- ${g.label} : ${cols}`;
+    });
+  }
+  return out.trim() || "Tu es un coach vestimentaire. Compose des tenues coherentes et flatteuses.";
+}
+
+async function saveProfile(){ await window.storage.set('profile', JSON.stringify(profile)); }
+async function loadProfile(){
+  try { const r = await window.storage.get('profile'); profile = r && r.value ? JSON.parse(r.value) : null; }
+  catch(e){ profile = null; }
+}
+async function saveUserStyle(){ await window.storage.set('stylePrompt', userStylePrompt || ''); }
+async function loadUserStyle(){
+  try { const r = await window.storage.get('stylePrompt'); userStylePrompt = r && r.value ? r.value : ''; }
+  catch(e){ userStylePrompt = ''; }
+}
+async function saveUserPalette(){ await window.storage.set('palette', JSON.stringify(userPalette)); }
+async function loadUserPalette(){
+  try { const r = await window.storage.get('palette'); userPalette = r && r.value ? JSON.parse(r.value) : { groups: [] }; }
+  catch(e){ userPalette = { groups: [] }; }
+  if (!userPalette.groups) userPalette.groups = [];
+}
+
+// ---- Onboarding : creer un profil au premier lancement ----
+function openProfile() {
+  const editing = !!profile;
+  document.getElementById('modalContent').innerHTML = `
+    <div class="modal-handle"></div>
+    <div class="modal-name">${editing ? 'Mon profil' : 'Bienvenue'}</div>
+    <div class="modal-brand" style="margin-bottom:20px">${editing ? '' : 'Cree ton profil pour commencer'}</div>
+    <div class="form-group">
+      <label class="form-label">Ton prenom</label>
+      <input class="form-input" id="pf-name" value="${escAttr(profile ? profile.name : '')}" placeholder="Ex : Tom">
+    </div>
+    <p style="font-size:12px;color:var(--ink-soft);margin-bottom:16px">
+      Ensuite : definis ta <b>palette</b> et ta <b>prompt de style</b> (onglets d\'accueil), puis ajoute tes pieces.
+    </p>
+    <div class="actions">
+      ${editing ? '<button class="btn" onclick="closeModal()">Fermer</button>' : ''}
+      <button class="btn primary" onclick="saveProfileForm()">${editing ? 'Enregistrer' : 'C\'est parti'}</button>
+    </div>`;
+  document.getElementById('modalBackdrop').classList.add('show');
+}
+async function saveProfileForm() {
+  const name = (document.getElementById('pf-name').value || '').trim();
+  if (!name) return alert('Entre ton prenom');
+  const isNew = !profile;
+  profile = { name, createdAt: (profile && profile.createdAt) || new Date().toISOString() };
+  await saveProfile();
+  closeModal();
+  updateHeader();
+  if (isNew) { currentTab = 'palette'; }  // on guide vers la config
+  render();
+}
+function updateHeader() {
+  const el = document.getElementById('profileName');
+  if (el) el.textContent = profile ? profile.name : '\u2014';
+  const tag = document.getElementById('tagline');
+  if (tag) tag.textContent = profile ? ('la garde-robe de ' + profile.name) : 'ta garde-robe, ton style';
+}
+
+// ---- Edition palette ----
+async function palSetLabel(i,v){ userPalette.groups[i].label=v; await saveUserPalette(); }
+async function palSetHex(g,c,v){ userPalette.groups[g].colors[c].hex=v; await saveUserPalette(); render(); }
+async function palSetName(g,c,v){ userPalette.groups[g].colors[c].name=v; await saveUserPalette(); }
+async function palAddColor(g){ userPalette.groups[g].colors.push({name:'',hex:'#c9b79c'}); await saveUserPalette(); render(); }
+async function palDelColor(g,c){ userPalette.groups[g].colors.splice(c,1); await saveUserPalette(); render(); }
+async function palAddGroup(){ userPalette.groups.push({label:'Nouvelle famille',colors:[]}); await saveUserPalette(); render(); }
+async function palDelGroup(i){ if(!confirm('Supprimer cette famille ?'))return; userPalette.groups.splice(i,1); await saveUserPalette(); render(); }
+
+async function saveStylePrompt(){
+  const el=document.getElementById('style-text');
+  userStylePrompt = el ? el.value : userStylePrompt;
+  stylePromptDirty=false;
+  await saveUserStyle();
+  alert('Prompt enregistree \u2713');
+}
+
+// ---- Presets « exemple » (le referentiel old money de Tom) ----
+const EXAMPLE_PALETTE = { groups: [
+  { label: 'Coeur (chaud)', colors: [
+    {name:'chocolat',hex:'#3b2a1d'},{name:'tabac',hex:'#8a5a2b'},{name:'sable',hex:'#c9b79c'},
+    {name:'ecru',hex:'#e8dfce'},{name:'blanc casse',hex:'#f2ece0'} ] },
+  { label: 'Complement', colors: [
+    {name:'olive',hex:'#6b6b3f'},{name:'marine',hex:'#2a3552'},{name:'chambray',hex:'#7f9bb5'},
+    {name:'taupe',hex:'#8a7a68'},{name:'cognac',hex:'#8b5a2b'} ] },
+  { label: 'Accents', colors: [
+    {name:'terracotta',hex:'#b5623f'},{name:'foret',hex:'#2f4a34'},{name:'rouille',hex:'#9c4a2a'} ] },
+  { label: 'Interdits pres du visage', colors: [
+    {name:'noir',hex:'#1a1a1a'},{name:'gris froid',hex:'#8a8f96'},{name:'blanc optique',hex:'#ffffff'} ] }
+]};
+const EXAMPLE_PROMPT = `Esthetique : chic decontracte nonchalant, old money mediterraneen / Riviera (Patrick Jane, Ralph Lauren).
+Curseur jeune-relax <-> mur-habille : ce sont les chaussures, le bas et les accessoires qui font basculer.
+
+LOIS DE PORT
+1. Chaud pres du visage en priorite.
+2. Haut froid au visage (marine, chambray) = toujours rechauffe : bas chaud + echarpe tabac + chaussure chaude.
+3. Un seul accent fort par tenue. Terracotta jamais double, jamais avec l'olive.
+4. Jamais marine-sur-marine ni olive-sur-olive au visage.
+5. Tee noir/anthracite = layer uniquement, sous une chemise/veste chaude ouverte. Jamais seul.
+6. En layering tee + chemise ouverte : c'est la chemise (au visage) qui mene la couleur.
+7. Tuck seulement sur taille a passants + ceinture. Jamais sur cordon.
+8. Socquettes invisibles dans le daim. Jamais pieds nus en sortie.
+
+ECHARPE : haut fonce/chaud -> creme (eclaire) ; haut froid -> tabac (rechauffe) ; haut clair -> tabac (profondeur). Toujours drapee lache.
+
+DETAILS : chemise lin = rouleau italien sous le coude ; veste lin = manches poussees mi-avant-bras ; sacoche = sangle sous la veste ; echarpe par-dessus la sangle.
+
+TON : francais, casual, direct, cash, zero flatterie.`;
+
+async function loadExamplePalette(){
+  if(!confirm('Remplacer ta palette par l\'exemple old money ?'))return;
+  userPalette = JSON.parse(JSON.stringify(EXAMPLE_PALETTE));
+  await saveUserPalette(); render();
+}
+async function loadExamplePrompt(){
+  if(!confirm('Remplacer ta prompt par l\'exemple old money ?'))return;
+  userStylePrompt = EXAMPLE_PROMPT;
+  await saveUserStyle(); render();
+}
+
 // ============ VERSION APP (PWA) ============
-const APP_VERSION = '11.0';
+const APP_VERSION = '1.0';
 
 // ============ PHOTOS : IndexedDB ============
 // localStorage sature vite avec des images -> IndexedDB pour les photos de tenues.
@@ -1644,595 +1779,19 @@ if (typeof window.storage === 'undefined') {
   };
 }
 
-const DEFAULT_WARDROBE = [
-  // ===== CHEMISES LIN (5) — Polo RL Classic Fit =====
-  { id: 'sh1', name: 'Chemise lin marine', brand: 'Polo RL', type: 'chemise-lin', color: '#2a3a58', category: 'haut', wears: 0 },
-  { id: 'sh2', name: 'Chemise lin marine clair', brand: 'Polo RL', type: 'chemise-lin', color: '#3a4d70', category: 'haut', wears: 0 },
-  { id: 'sh3', name: 'Chemise lin olive', brand: 'Polo RL', type: 'chemise-lin', color: '#6b7048', category: 'haut', wears: 0, signature: true },
-  { id: 'sh4', name: 'Chemise lin blanc', brand: 'Polo RL', type: 'chemise-lin', color: '#ede5d2', category: 'haut', wears: 0 },
-  { id: 'sh5', name: 'Chemise chambray bleu jean', brand: 'Polo RL', type: 'chemise-coton', color: '#9eb4c8', category: 'haut', wears: 0 },
-  { id: 'sh6', name: 'Chemise lin camel/tabac', brand: 'Polo RL', type: 'chemise-lin', color: '#a8865c', category: 'haut', wears: 0, note: 'Chaude pres du visage (comble le manque de chemise lin chaude). Demi-tuck ; eviter un bas trop pale ton-sur-ton.' },
-  // ===== TEES (15) =====
-  { id: 't1', name: 'Tee crème', brand: 'Zara', type: 'tee', color: '#ebe2cd', category: 'haut', wears: 0 },
-  { id: 't5', name: 'Tee crème', brand: 'Uniqlo', type: 'tee', color: '#e6ddc8', category: 'haut', wears: 0, note: 'Supima/U — neutre clair' },
-  { id: 't9', name: 'Tee blanc', brand: 'Polo RL', type: 'tee', color: '#f0ece2', category: 'haut', wears: 0 },
-  { id: 't2', name: 'Tee chambray / bleu clair', brand: 'Polo RL', type: 'tee', color: '#9bb1c4', category: 'haut', wears: 0 },
-  { id: 't3', name: 'Tee olive', brand: 'Polo RL', type: 'tee', color: '#8d8657', category: 'haut', wears: 0 },
-  { id: 't4', name: 'Tee marron clair / tabac', brand: 'Polo RL', type: 'tee', color: '#7e5d3e', category: 'haut', wears: 0 },
-  { id: 't15', name: 'Tee maille chocolat', brand: 'Lacoste', type: 'tee', color: '#4a3526', category: 'haut', wears: 0, note: 'Maille, ton chaud profond' },
-  { id: 't7', name: 'Tee marine', brand: 'Uniqlo', type: 'tee', color: '#28344e', category: 'haut', wears: 0, note: 'Supima/U — basique polyvalent' },
-  { id: 't16', name: 'Tee marine', brand: 'Brooks Brothers', type: 'tee', color: '#303c55', category: 'haut', wears: 0, note: 'Upgrade BB — maille plus dense que le Uniqlo' },
-  { id: 't14', name: 'Tee terracotta', brand: 'Uniqlo', type: 'tee', color: '#b06a4e', category: 'haut', wears: 0, note: 'Manches courtes, accent chaud' },
-  { id: 't8', name: 'Tee terracotta sourde (ML)', brand: 'American Vintage', type: 'tee', color: '#9d6a54', category: 'haut', wears: 0, note: 'Maille fine, manches longues, accent chaud sourd' },
-  { id: 't10', name: 'Tee gris anthracite', brand: 'Polo RL', type: 'tee', color: '#45454a', category: 'haut', wears: 0, note: 'Hors palette visage : sous chemise/veste ouverte, pas ras-du-cou seul' },
-  { id: 't11', name: 'Tee noir (slim) #1', brand: 'Polo RL', type: 'tee', color: '#1f1f22', category: 'haut', wears: 0, note: 'Hors palette visage : layer sous chemise/veste, jamais ras-du-cou seul' },
-  { id: 't12', name: 'Tee noir (slim) #2', brand: 'Polo RL', type: 'tee', color: '#1f1f22', category: 'haut', wears: 0, note: 'Hors palette visage : layer sous chemise/veste, jamais ras-du-cou seul' },
-  { id: 't13', name: 'Tee noir (classic)', brand: 'Polo RL', type: 'tee', color: '#1f1f22', category: 'haut', wears: 0, note: 'Hors palette visage : layer sous chemise/veste, jamais ras-du-cou seul' },
-  { id: 't17', name: 'Tee chocolat fonce', brand: 'Father & Sons', type: 'tee', color: '#33261d', category: 'haut', wears: 0, size: 'M', note: 'Coton, ton chaud profond — uni, plus fonce que le Lacoste maille.' },
-  { id: 't18', name: 'Tee marine', brand: 'Aigle', type: 'tee', color: '#2b3750', category: 'haut', wears: 0, note: 'Basique marine — froid au visage, garde du creme/chaud a proximite.' },
-  // ===== POLOS MAILLE (3) =====
-  { id: 'p1', name: 'Polo maille crème', brand: 'Polo RL', type: 'polo', color: '#dcd2bd', category: 'haut', wears: 0 },
-  { id: 'p2', name: 'Polo maille marine', brand: 'Polo RL', type: 'polo', color: '#3a4a68', category: 'haut', wears: 0 },
-  { id: 'p3', name: 'Polo maille crème col cubain', brand: 'Lacoste', type: 'polo', color: '#d9cdb6', category: 'haut', wears: 0, note: 'Col cubain / camp' },
-  // ===== SUR-CHEMISE / SWEAT (2) =====
-  { id: 'm1', name: 'Sur-chemise maille marron/taupe', brand: 'Polo RL', type: 'maille', color: '#6e5a44', category: 'haut', wears: 0, note: 'Boutonnée, se porte ouverte sur un tee' },
-  { id: 'm2', name: 'Sweat maille fine crème', brand: 'Polo RL', type: 'maille', color: '#dcd2bd', category: 'haut', wears: 0, note: 'Casual only (format sweat)' },
-  // ===== PANTALONS / CHINOS (6) =====
-  { id: 'pn1', name: 'Pantalon lin crème', brand: 'Polo RL', type: 'pantalon-lin', color: '#e0d4ba', category: 'bas', wears: 0 },
-  { id: 'pn2', name: 'Chino marine (liseré violet)', brand: 'Polo RL', type: 'chino', color: '#1d2b42', category: 'bas', wears: 0, signature: true, size: 'W30 L32', note: 'Waistband à passants — tuck OK' },
-  { id: 'pn6', name: 'Chino marine détente (cordon)', brand: 'Polo RL', type: 'chino', color: '#24314a', category: 'bas', wears: 0, note: 'Taille cordon élastique — PAS de tuck' },
-  { id: 'pn3', name: 'Chino sable', brand: 'Polo RL', type: 'chino', color: '#cabb9d', category: 'bas', wears: 0, size: 'W30 L32' },
-  { id: 'pn4', name: 'Chino camel', brand: 'Polo RL', type: 'chino', color: '#b08d5f', category: 'bas', wears: 0, size: 'W30 L32' },
-  { id: 'pn5', name: 'Chino olive', brand: 'Lacoste', type: 'chino', color: '#6e7049', category: 'bas', wears: 0 },
-  { id: 'pn7', name: 'Pantalon lin tabac detente', brand: 'Father & Sons', type: 'pantalon-lin', color: '#a68a5f', category: 'bas', wears: 0, note: 'Taille cordon elastique — PAS de tuck, pas de ceinture. Bas chaud tabac (comble le manque).' },
-  { id: 'pn8', name: 'Pantalon lin olive', brand: 'Father & Sons', type: 'pantalon-lin', color: '#77784f', category: 'bas', wears: 0, note: 'Coupe a passants — tuck/front-tuck OK + ceinture. Couleur signature en bas, version lin.' },
-  { id: 'pn9', name: 'Pantalon lin marine detente', brand: 'Father & Sons', type: 'pantalon-lin', color: '#2a3552', category: 'bas', wears: 0, note: 'Taille cordon elastique — PAS de tuck, pas de ceinture. Version lin detente du marine.' },
-  // ===== SHORTS (5) =====
-  { id: 's1', name: 'Short marine lin', brand: 'Polo RL', type: 'short', color: '#2a3a58', category: 'bas', wears: 0 },
-  { id: 's2', name: 'Short lin crème', brand: 'Tommy Hilfiger', type: 'short', color: '#e6ddc8', category: 'bas', wears: 0, note: 'Cordon élastique — pas de tuck' },
-  { id: 's3', name: 'Short détente terracotta', brand: 'Brooks Brothers', type: 'short', color: '#ad5d3a', category: 'bas', wears: 0, note: 'Cordon élastique — pas de tuck. Accent chaud, créneau farniente — garde le haut neutre dessus.' },
-  { id: 's4', name: 'Short détente crème', brand: 'Brooks Brothers', type: 'short', color: '#ddd2ba', category: 'bas', wears: 0, note: 'Cordon élastique — pas de tuck' },
-  { id: 's5', name: 'Short lin olive/kaki', brand: 'Brooks Brothers', type: 'short', color: '#8a7b45', category: 'bas', wears: 0, note: 'Coupe chino à passants — front-tuck possible' },
-  // ===== VESTES LIN (2) =====
-  { id: 'v1', name: 'Veste lin marine', brand: 'Polo RL', type: 'veste-lin', color: '#2a3a58', category: 'surcouche', wears: 0 },
-  { id: 'v2', name: 'Veste lin camel/tan', brand: 'Polo RL', type: 'veste-lin', color: '#a89160', category: 'surcouche', wears: 0, note: 'Léger cast olive — neutre chaud, va près du visage' },
-  // ===== CHAUSSURES (2) =====
-  { id: 'c1', name: 'Sneakers Lacoste blanc cassé', brand: 'Lacoste', type: 'sneakers', color: '#f4ede0', category: 'chaussure', wears: 0 },
-  { id: 'c2', name: 'Ferragamo penny loafer', brand: 'Ferragamo', type: 'mocassins', color: '#8b5a2b', category: 'chaussure', wears: 0, signature: true, note: 'Daim chestnut, semelle gomme, Lavorazione Originale' },
-  { id: 'c3', name: 'Schmoove daim camel', brand: 'Schmoove', type: 'sneakers', color: '#b3986a', category: 'chaussure', wears: 0, note: 'Daim camel, tennis retro — impermeabiliser (spray daim), temps sec. Alternative chaude aux Lacoste.' },
-  { id: 'c4', name: 'Sebago Docksides cognac', brand: 'Sebago', type: 'mocassins', color: '#5e3b28', category: 'chaussure', wears: 0, note: 'Boat shoe cuir cognac — nautique, ta fermee mousson. Socquettes invisibles, ou pieds nus en ete.' },
-  { id: 'c5', name: 'Verbenas daim tabac', brand: 'Verbenas', type: 'sneakers', color: '#9e7d4e', category: 'chaussure', wears: 0, note: 'Daim tabac, semelle jute/corde — esprit espadrille, casual chaud. Impermeabiliser.' },
-  // ===== ACCESSOIRES (8) =====
-  { id: 'a2', name: 'Écharpe lin camel/tabac', brand: 'Polo RL', type: 'foulard', color: '#b5926a', category: 'accessoire', wears: 0, signature: true },
-  { id: 'a1', name: 'Écharpe bleu chambray', brand: 'Polo RL', type: 'foulard', color: '#a8bcc8', category: 'accessoire', wears: 0, note: 'Bleu froid — prudence au col près du visage' },
-  { id: 'a6', name: 'Écharpe blanc crème', brand: 'Polo RL', type: 'foulard', color: '#e8dcc4', category: 'accessoire', wears: 0, note: 'Plus épaisse, variante claire' },
-  { id: 'a3', name: 'Ceinture cuir cognac', brand: 'Polo RL', type: 'ceinture', color: '#9c6a3c', category: 'accessoire', wears: 0, signature: true },
-  { id: 'a8', name: 'Ceinture cuir brun/marron', brand: '—', type: 'ceinture', color: '#5d4434', category: 'accessoire', wears: 0, note: '2e ceinture, avec chaussures brunes' },
-  { id: 'a7', name: 'Lunettes Ray-Ban dorées (verres ambrés)', brand: 'Ray-Ban', type: 'lunettes', color: '#b07a3c', category: 'accessoire', wears: 0, signature: true, note: 'Or + ambre, ta paire — Persol écaille en wishlist' },
-  { id: 'a4', name: 'Pochette Coach cuir brun', brand: 'Coach', type: 'sacoche', color: '#6b4423', category: 'accessoire', wears: 0, note: 'Rectangle, cuir brun' },
-  { id: 'a5', name: 'Montre Longines NATO kaki/brun', brand: 'Longines', type: 'montre', color: '#6b6a3d', category: 'accessoire', wears: 0 },
-  { id: 'a9', name: 'Montre Longines Conquest acier', brand: 'Longines', type: 'montre', color: '#a2a6ab', category: 'accessoire', wears: 0, note: 'Cadran noir, bracelet acier — sportive-chic, polyvalente et robuste au quotidien.' },
-  { id: 'a10', name: 'Montre Huguenin moonphase (cuir croco)', brand: 'Huguenin', type: 'montre', color: '#6e4a2f', category: 'accessoire', wears: 0, note: 'Cadran argent guilloche + phase de lune, cuir croco brun — la plus habillee, pour le soir.' },
-  { id: 'a11', name: 'Lunettes Persol ecaille Havana (714)', brand: 'Persol', type: 'lunettes', color: '#6b4327', category: 'accessoire', wears: 0, note: '714 pliable, ecaille Havana, verres fonces — 2e paire ecaille, complete les Ray-Ban dorees (forme + couleur differentes).' },
-  { id: 'a12', name: 'Chapeau Panama Antibes', brand: 'Courtois Paris', type: 'chapeau', color: '#d9c298', category: 'accessoire', wears: 0, signature: true, note: 'Fedora paille naturelle, bandeau gros-grain tabac, bord large — protection soleil + signature Patrick Jane. Enfonce-le, leger tilt arriere.' }
-];
+const DEFAULT_WARDROBE = [];
 
-const CURATED_OUTFITS = [
-  { id: 'p1-01', name: "Tonal choco tabac", level: 1, vibe: 'jeune',
-    description: "Tee chocolat F&S + pantalon lin tabac + Verbenas. Camaieu chaud plein, semelle jute.",
-    pieces: ['t17', 'pn7', 'c5', 'a5'], scarf: 'a6', shortSwap: null, watch: 'kaki', hat: true,
-    tips: { tuck: "Rien rentre (lin tabac a cordon), pas de ceinture.", sleeves: "Tee retrousse 1 pli.", scarf: "Creme — casse le bloc brun, apporte la lumiere.", strap: "Tabac / cuir, ou la Huguenin.", note: "Choco + tabac au visage et en bas : plein coeur de ta palette. Le creme (echarpe) est le seul point clair, il evite le monochrome plat. Panama + Persol completent." } },
-  { id: 'p1-02', name: "Choco sur creme", level: 1, vibe: 'jeune',
-    description: "Tee chocolat F&S + pantalon lin creme + Lacoste. Contraste chaud le plus flatteur.",
-    pieces: ['t17', 'pn1', 'a3', 'c1', 'a5'], scarf: 'a6', shortSwap: 's2', watch: 'kaki', hat: true,
-    tips: { tuck: "Front-tuck leger + ceinture cognac.", sleeves: "Tee retrousse 1 pli.", scarf: "Creme, tonal avec le bas.", strap: "Tabac.", note: "Choco au teint = bonne mine directe, creme en bas qui renvoie la lumiere : le contraste chaud clair imparable. Blanches pour aerer." } },
-  { id: 'p1-03', name: "Choco terreux Schmoove", level: 1, vibe: 'inter',
-    description: "Tee chocolat F&S + chino sable + Schmoove camel. Degrade terreux.",
-    pieces: ['t17', 'pn3', 'a3', 'c3', 'a5'], scarf: 'a6', shortSwap: 's4', watch: 'kaki', hat: true,
-    tips: { tuck: "Front-tuck leger + ceinture cognac.", sleeves: "Tee retrousse 1 pli.", scarf: "Creme, marque l'etage du cou.", strap: "Tabac.", note: "Choco -> sable -> camel : trois marches du meme escalier chaud, rien qui detonne. Socquettes invisibles dans le daim." } },
-  { id: 'p1-04', name: "Tabac sable Schmoove", level: 1, vibe: 'jeune',
-    description: "Tee tabac + chino sable + Schmoove camel. Degrade chaud doux.",
-    pieces: ['t4', 'pn3', 'a3', 'c3', 'a5'], scarf: 'a6', shortSwap: 's4', watch: 'kaki', hat: true,
-    tips: { tuck: "Front-tuck leger + ceinture cognac.", sleeves: "Tee retrousse 1 pli.", scarf: "Creme.", strap: "Tabac.", note: "Tee tabac : la couleur qui te fait bonne mine sans effort. Tout reste dans le chaud clair." } },
-  { id: 'p1-05', name: "Tabac creme Sebago", level: 1, vibe: 'inter',
-    description: "Tee tabac + pantalon lin creme + Sebago cognac. Riviera casual, cuir cognac.",
-    pieces: ['t4', 'pn1', 'a3', 'c4', 'a5'], scarf: 'a6', shortSwap: 's2', watch: 'acier', hat: true,
-    tips: { tuck: "Front-tuck leger + ceinture cognac assortie aux Sebago.", sleeves: "Tee retrousse 1 pli.", scarf: "Creme, tonal.", strap: "Tabac, ou la Conquest acier.", note: "Ceinture et chaussures dans le meme cognac = le detail range sans effort. Pieds nus dans les Sebago l'ete." } },
-  { id: 'p1-06', name: "Tabac sur marine", level: 1, vibe: 'inter',
-    description: "Tee tabac + chino marine + Lacoste. Chaud au visage, marine qui ancre.",
-    pieces: ['t4', 'pn2', 'a3', 'c1', 'a5'], scarf: 'a6', shortSwap: 's1', watch: 'kaki', hat: true,
-    tips: { tuck: "Front-tuck leger + ceinture cognac.", sleeves: "Tee retrousse 1 pli.", scarf: "Creme legere.", strap: "Tabac.", note: "L'ordre parfait pour toi : le chaud pres du teint, le froid loin (le marine reste en bas). Blanches pour la fraicheur." } },
-  { id: 'p1-07', name: "Maille choco sable", level: 1, vibe: 'inter',
-    description: "Tee maille chocolat + chino sable + Schmoove. Le jeu de matieres qui fait riche.",
-    pieces: ['t15', 'pn3', 'a3', 'c3', 'a5'], scarf: 'a6', shortSwap: 's4', watch: 'kaki', hat: true,
-    tips: { tuck: "Front-tuck leger + ceinture cognac.", sleeves: "Maille telle quelle, on n'y touche pas.", scarf: "Creme.", strap: "Tabac.", note: "Choco maille sur sable lisse : c'est le contraste de texture qui rend cher. Daim camel aux pieds pour boucler le chaud." } },
-  { id: 'p1-08', name: "Maille choco marine", level: 1, vibe: 'inter',
-    description: "Tee maille chocolat + chino marine + Lacoste. Profond au visage, ancre, aere.",
-    pieces: ['t15', 'pn2', 'a3', 'c1', 'a5'], scarf: 'a6', shortSwap: 's1', watch: 'kaki', hat: true,
-    tips: { tuck: "Front-tuck leger + ceinture cognac.", sleeves: "Maille telle quelle.", scarf: "Creme — indispensable, c'est le point de lumiere entre deux fonces.", strap: "Tabac.", note: "Choco (chaud) au visage + marine en bas : les blanches et l'echarpe creme empechent l'ensemble de s'eteindre." } },
-  { id: 'p1-09', name: "Farniente creme tabac", level: 1, vibe: 'jeune',
-    description: "Tee creme + pantalon lin tabac + Verbenas. Tout chaud doux, semelle corde.",
-    pieces: ['t5', 'pn7', 'c5', 'a5'], scarf: 'a2', shortSwap: null, watch: 'kaki', hat: true,
-    tips: { tuck: "Rien rentre (cordon), pas de ceinture.", sleeves: "Tee retrousse sur l'avant-bras.", scarf: "Creme, optionnelle par grosse chaleur.", strap: "Tabac, ou kaki.", note: "Creme + tabac + daim tabac = camaieu chaud clair, le creneau detente stylee. Socquettes invisibles." } },
-  { id: 'p1-10', name: "Creme camel aere", level: 1, vibe: 'jeune',
-    description: "Tee creme + chino camel + Lacoste. Chaud clair, blanches pour respirer.",
-    pieces: ['t1', 'pn4', 'a3', 'c1', 'a5'], scarf: 'a2', shortSwap: 's2', watch: 'kaki', hat: true,
-    tips: { tuck: "Front-tuck leger + ceinture cognac.", sleeves: "Tee retrousse 1 pli.", scarf: "Creme, tonal.", strap: "Kaki.", note: "Camaieu creme/camel avec de l'air en bas : simple, net, coeur de palette." } },
-  { id: 'p1-11', name: "Creme sur lin olive", level: 1, vibe: 'inter',
-    description: "Tee creme + pantalon lin olive + Schmoove. Signature inversee, lumiere en haut.",
-    pieces: ['t5', 'pn8', 'a3', 'c3', 'a5'], scarf: 'a2', shortSwap: 's5', watch: 'kaki', hat: true,
-    tips: { tuck: "Front-tuck leger (lin olive a passants) + ceinture cognac.", sleeves: "Tee retrousse 1 pli.", scarf: "Creme.", strap: "Kaki — le vert de la sangle NATO repond a l'olive.", note: "Creme lumineux au visage, olive terreux en bas : l'olive reste ta couleur complement, portee loin du teint elle passe tout seul." } },
-  { id: 'p1-12', name: "Blanc sable Verbenas", level: 1, vibe: 'jeune',
-    description: "Tee blanc RL + chino sable + Verbenas. Tout clair chaud, canicule.",
-    pieces: ['t9', 'pn3', 'a3', 'c5', 'a5'], scarf: 'a2', shortSwap: 's4', watch: 'kaki', hat: true,
-    tips: { tuck: "Front-tuck leger + ceinture cognac.", sleeves: "Tee retrousse 1 pli.", scarf: "Creme, ou skip s'il fait lourd.", strap: "Kaki.", note: "Blanc + sable = rien ne chauffe l'oeil, tout chauffe le teint. Attention transpiration : le sable pardonne, le blanc moins." } },
-  { id: 'p1-13', name: "Blanc lin marine nautique", level: 1, vibe: 'jeune',
-    description: "Tee blanc RL + pantalon lin marine detente + Lacoste. Nautique epure.",
-    pieces: ['t9', 'pn9', 'c1', 'a5'], scarf: 'a1', shortSwap: 's1', watch: 'acier', hat: true,
-    tips: { tuck: "Rien rentre (cordon), pas de ceinture.", sleeves: "Tee retrousse 1 pli.", scarf: "Chambray — echo bleu leger, permis car le visage est encadre de blanc. Un seul accent froid.", strap: "Kaki, ou la Conquest acier.", note: "Blanc au visage + marine en bas : base eternelle. Le blanc casse tient tout frais." } },
-  { id: 'p1-14', name: "Olive sable Verbenas", level: 1, vibe: 'inter',
-    description: "Tee olive + chino sable + Verbenas. Terreux sec, semelle corde.",
-    pieces: ['t3', 'pn3', 'a3', 'c5', 'a5'], scarf: 'a6', shortSwap: 's4', watch: 'kaki', hat: true,
-    tips: { tuck: "Front-tuck leger + ceinture cognac.", sleeves: "Tee retrousse 1 pli.", scarf: "Creme — eclaire l'olive.", strap: "Kaki.", note: "Olive + sable + tabac aux pieds = camaieu terrain sec, tres naturel sur toi. Socquettes invisibles." } },
-  { id: 'p1-15', name: "Olive sur creme", level: 1, vibe: 'jeune',
-    description: "Tee olive + pantalon lin creme + Lacoste. La signature en version tee.",
-    pieces: ['t3', 'pn1', 'a3', 'c1', 'a5'], scarf: 'a6', shortSwap: 's4', watch: 'kaki', hat: true,
-    tips: { tuck: "Front-tuck leger + ceinture cognac.", sleeves: "Tee retrousse 1 pli.", scarf: "Creme, tonal.", strap: "Kaki.", note: "Olive au visage en tee decontracte + lumiere en bas : marche parce que l'olive te va aussi au teint en version relax." } },
-  { id: 'p1-16', name: "Olive marine sourd", level: 1, vibe: 'inter',
-    description: "Tee olive + chino marine detente + Lacoste. Sourd, militaire-riviera.",
-    pieces: ['t3', 'pn6', 'c1', 'a5'], scarf: 'a6', shortSwap: 's1', watch: 'kaki', hat: true,
-    tips: { tuck: "Rien rentre (cordon), pas de ceinture.", sleeves: "Tee retrousse 1 pli.", scarf: "Creme — apporte LA lumiere, sinon trop sombre.", strap: "Kaki.", note: "Olive + marine = duo sourd elegant, mais il lui faut un point clair : echarpe creme + blanches, non negociables." } },
-  { id: 'p1-17', name: "Terracotta sable accent", level: 1, vibe: 'jeune',
-    description: "Tee terracotta + chino sable + Lacoste. L'accent au visage, le reste neutre chaud.",
-    pieces: ['t14', 'pn3', 'a3', 'c1', 'a5'], scarf: 'a6', shortSwap: 's4', watch: 'kaki', hat: true,
-    tips: { tuck: "Front-tuck leger + ceinture cognac.", sleeves: "Tee retrousse 1 pli.", scarf: "Creme — JAMAIS un deuxieme accent.", strap: "Kaki.", note: "Le terracotta pres du visage te va (accent chaud) tant que tout le reste se tait. Sable + blanches = l'ecrin parfait." } },
-  { id: 'p1-18', name: "Terracotta marine accent", level: 1, vibe: 'jeune',
-    description: "Tee terracotta + chino marine detente + Lacoste. L'accent tenu par le marine.",
-    pieces: ['t14', 'pn6', 'c1', 'a5'], scarf: 'a6', shortSwap: 's1', watch: 'kaki', hat: true,
-    tips: { tuck: "Rien rentre (cordon), pas de ceinture.", sleeves: "Tee retrousse 1 pli.", scarf: "Creme.", strap: "Kaki.", note: "Marine profond + terracotta = contraste complementaire qui claque. Blanches pour ne pas plomber. Un seul accent." } },
-  { id: 'p1-19', name: "Terracotta sourde ML", level: 1, vibe: 'inter',
-    description: "Tee terracotta sourde ML + pantalon lin creme + Verbenas. Accent doux en manches longues.",
-    pieces: ['t8', 'pn1', 'a3', 'c5', 'a5'], scarf: 'a6', shortSwap: 's2', watch: 'kaki', hat: true,
-    tips: { tuck: "Front-tuck leger + ceinture cognac.", sleeves: "Manches poussees (froissees) sous le coude.", scarf: "Creme.", strap: "Kaki.", note: "La terracotta sourde est assez calme pour passer au visage sans crier. Reste neutre partout ailleurs." } },
-  { id: 'p1-20', name: "Marine BB sable rechauffe", level: 1, vibe: 'inter',
-    description: "Tee marine BB + chino sable + Schmoove. Froid au visage RECHAUFFE par sable + camel + tabac.",
-    pieces: ['t16', 'pn3', 'a3', 'c3', 'a5'], scarf: 'a2', shortSwap: 's4', watch: 'kaki', hat: true,
-    tips: { tuck: "Front-tuck leger + ceinture cognac.", sleeves: "Tee retrousse 1 pli.", scarf: "Tabac au col — REFLEXE avec un haut froid, sinon ca te grise.", strap: "Kaki.", note: "Marine au teint = cerne de chaud : sable en bas, daim camel aux pieds, tabac au cou. Le sable rechauffe mieux que le blanc pur." } },
-  { id: 'p1-21', name: "Marine Aigle camel rechauffe", level: 1, vibe: 'jeune',
-    description: "Tee marine Aigle + chino camel + Schmoove. Le froid encadre de chaud.",
-    pieces: ['t18', 'pn4', 'a3', 'c3', 'a5'], scarf: 'a2', shortSwap: 's2', watch: 'kaki', hat: true,
-    tips: { tuck: "Front-tuck leger + ceinture cognac.", sleeves: "Tee retrousse 1 pli.", scarf: "Tabac.", strap: "Kaki.", note: "La correction parfaite d'un haut froid : camel en bas, camel aux pieds, tabac au cou. Socquettes invisibles." } },
-  { id: 'p1-22', name: "Marine creme Sebago", level: 1, vibe: 'inter',
-    description: "Tee marine + pantalon lin creme + Sebago. Nautique, cuir cognac, col rechauffe.",
-    pieces: ['t7', 'pn1', 'a3', 'c4', 'a5'], scarf: 'a2', shortSwap: 's2', watch: 'acier', hat: true,
-    tips: { tuck: "Front-tuck leger + ceinture cognac.", sleeves: "Tee retrousse 1 pli.", scarf: "Tabac — rechauffe le marine au col.", strap: "Kaki, ou la Conquest acier.", note: "Marine au visage : ecarpe tabac + cognac aux pieds, le creme fait le pont. La formule bateau propre." } },
-  { id: 'p1-23', name: "Marine short terracotta", level: 1, vibe: 'jeune',
-    description: "Tee marine Aigle + short terracotta + Lacoste. Nautique epice, accent en bas.",
-    pieces: ['t18', 's3', 'c1', 'a5'], scarf: 'a2', shortSwap: null, watch: 'acier', hat: true,
-    tips: { tuck: "Rien rentre (short a cordon), pas de ceinture.", sleeves: "Tee retrousse 1 pli.", scarf: "Tabac legere — rechauffe le col sans concurrencer le short.", strap: "Kaki.", note: "Marine + terracotta = duo complementaire qui claque. Un seul accent (le short), tout le reste se tait." } },
-  { id: 'p1-24', name: "Chambray sable rechauffe", level: 1, vibe: 'inter',
-    description: "Tee chambray + chino sable + Schmoove. Bleu clair rechauffe par sable + camel.",
-    pieces: ['t2', 'pn3', 'a3', 'c3', 'a5'], scarf: 'a2', shortSwap: 's4', watch: 'kaki', hat: true,
-    tips: { tuck: "Front-tuck leger + ceinture cognac.", sleeves: "Tee retrousse 1 pli.", scarf: "Tabac — regle d'or avec un haut froid.", strap: "Kaki.", note: "Chambray au visage = entoure de chaud (sable, camel, tabac). Socquettes invisibles." } },
-  { id: 'p1-25', name: "Chambray camel", level: 1, vibe: 'jeune',
-    description: "Tee chambray + chino camel + Lacoste. Bleu clair sur chaud, facile.",
-    pieces: ['t2', 'pn4', 'a3', 'c1', 'a5'], scarf: 'a2', shortSwap: 's2', watch: 'kaki', hat: true,
-    tips: { tuck: "Front-tuck leger + ceinture cognac.", sleeves: "Tee retrousse 1 pli.", scarf: "Tabac au col.", strap: "Kaki.", note: "Le camel fait tout le rechauffage, les blanches gardent le leger. Persol ecaille dessus = joli." } },
-  { id: 'p1-26', name: "Bleu tonal detente", level: 1, vibe: 'inter',
-    description: "Tee chambray + chino marine detente + Lacoste. Le seul bleu-sur-bleu autorise.",
-    pieces: ['t2', 'pn6', 'c1', 'a5'], scarf: 'a2', shortSwap: 's1', watch: 'kaki', hat: true,
-    tips: { tuck: "Rien rentre (cordon), pas de ceinture.", sleeves: "Tee retrousse 1 pli.", scarf: "Tabac — c'est ELLE qui sauve le bleu-sur-bleu au visage. Non negociable.", strap: "Kaki.", note: "Bleu tonal seulement clair (chambray) au visage sur fonce (marine) en bas, avec l'echarpe tabac pour rechauffer le teint." } },
-  { id: 'p1-27', name: "Polo creme olive", level: 1, vibe: 'inter',
-    description: "Polo maille creme + chino olive + Schmoove. Maille + terreux, casual soigne.",
-    pieces: ['p1', 'pn5', 'a3', 'c3', 'a5'], scarf: 'a2', shortSwap: 's5', watch: 'kaki', hat: true,
-    tips: { tuck: "Front-tuck leger + ceinture cognac.", buttons: "1 bouton ouvert.", sleeves: "Telles quelles.", scarf: "Creme, tonal.", strap: "Kaki.", note: "La maille creme anoblit l'olive ; le camel aux pieds referme le trio." } },
-  { id: 'p1-28', name: "Cubain lin tabac", level: 1, vibe: 'jeune',
-    description: "Polo col cubain creme + pantalon lin tabac + Verbenas. Le plus Riviera du niveau 1.",
-    pieces: ['p3', 'pn7', 'c5', 'a5'], scarf: 'a2', shortSwap: null, watch: 'kaki', hat: true,
-    tips: { tuck: "Sorti net (col cubain + cordon).", buttons: "2 boutons ouverts, col a plat.", sleeves: "Telles quelles.", scarf: "Creme, ou skip.", strap: "Tabac.", note: "Cubain creme + lin tabac + jute + Panama + Persol : ton moodboard en une tenue." } },
-  { id: 'p1-29', name: "Cubain lin marine nautique", level: 1, vibe: 'jeune',
-    description: "Polo col cubain creme + pantalon lin marine detente + Sebago. Riviera relachee.",
-    pieces: ['p3', 'pn9', 'c4', 'a5'], scarf: 'a2', shortSwap: 's1', watch: 'acier', hat: true,
-    tips: { tuck: "Sorti net (cordon).", buttons: "2 boutons ouverts, col a plat.", sleeves: "Telles quelles.", scarf: "Creme legere.", strap: "Kaki.", note: "Creme au visage + marine en bas + cognac (Sebago). Le col cubain fait le style a lui seul." } },
-  { id: 'p1-30', name: "Polo marine sable", level: 1, vibe: 'inter',
-    description: "Polo maille marine + chino sable + Lacoste. Sobre, rechauffe par le sable.",
-    pieces: ['p2', 'pn3', 'a3', 'c1', 'a5'], scarf: 'a2', shortSwap: 's4', watch: 'kaki', hat: true,
-    tips: { tuck: "Front-tuck leger + ceinture cognac.", buttons: "1 bouton ouvert.", sleeves: "Telles quelles.", scarf: "Tabac — rechauffe le col marine.", strap: "Kaki.", note: "Polo marine = froid au visage : sable en bas + tabac au cou. La maille evite le plat." } },
-  { id: 'p1-31', name: "Sweat creme camel", level: 1, vibe: 'inter',
-    description: "Sweat maille fine creme + chino camel + Schmoove. Cocon chaud, textures douces.",
-    pieces: ['m2', 'pn4', 'c3', 'a5'], scarf: 'a2', shortSwap: null, watch: 'kaki', hat: true,
-    tips: { tuck: "Sorti net — un sweat ne se rentre pas.", sleeves: "Poussees legerement aux poignets.", scarf: "Creme, boucle lache.", strap: "Kaki, ou tabac.", note: "Creme/camel en maille + daim : tout doux, tout chaud. Le look terrasse quand ca souffle." } },
-  { id: 'p1-32', name: "Sweat creme marine", level: 1, vibe: 'jeune',
-    description: "Sweat maille fine creme + chino marine detente + Lacoste. Fin de journee bord de mer.",
-    pieces: ['m2', 'pn6', 'c1', 'a5'], scarf: 'a2', shortSwap: 's1', watch: 'kaki', hat: true,
-    tips: { tuck: "Sorti net (cordon).", sleeves: "Poussees legerement.", scarf: "Creme, tonal haut.", strap: "Kaki.", note: "Creme (chaud) au visage sur marine : l'apero-digue. Version short marine (s1) = look plage exact." } },
-  { id: 'l1-01', name: "Choco tee sous chemise camel", level: 1, vibe: 'jeune',
-    description: "Tee choco + chemise lin camel OUVERTE + chino sable + Schmoove. La chemise camel encadre le visage en chaud.",
-    pieces: ['t17', 'sh6', 'pn3', 'a3', 'c3', 'a5'], scarf: 'a6', shortSwap: null, watch: 'kaki', hat: true,
-    tips: { tuck: "Tee choco front-tuck leger ; chemise camel ouverte, sortie.", buttons: "Chemise entierement ouverte, portee en surchemise.", sleeves: "Chemise retroussee avant-bras.", scarf: "Creme sur le tee.", strap: "Tabac.", note: "En layering c'est la CHEMISE (au visage) qui mene : camel = chaud, parfait. Choco + sable + camel = camaieu terreux. Un seul geste, effet maxi." } },
-  { id: 'l1-02', name: "Tabac tee sous chemise olive", level: 1, vibe: 'inter',
-    description: "Tee tabac + chemise lin olive OUVERTE + chino sable + Verbenas. Layering earthy.",
-    pieces: ['t4', 'sh3', 'pn3', 'a3', 'c5', 'a5'], scarf: 'a6', shortSwap: null, watch: 'kaki', hat: true,
-    tips: { tuck: "Tee tabac front-tuck ; chemise olive ouverte.", buttons: "Chemise ouverte.", sleeves: "Retroussee avant-bras.", scarf: "Creme.", strap: "Tabac.", note: "Olive au visage (chemise) rechauffee par le tee tabac dessous + sable en bas. Earthy chic decontracte." } },
-  { id: 'l1-03', name: "Creme tee sous chemise olive marine", level: 1, vibe: 'jeune',
-    description: "Tee creme + chemise lin olive OUVERTE + chino marine detente + Lacoste. Sourd + lumiere.",
-    pieces: ['t5', 'sh3', 'pn6', 'c1', 'a5'], scarf: 'a6', shortSwap: null, watch: 'kaki', hat: true,
-    tips: { tuck: "Tee creme sorti net (cordon) ; chemise olive ouverte.", buttons: "Chemise ouverte.", sleeves: "Retroussee.", scarf: "Creme.", strap: "Kaki.", note: "Olive frame + creme lumineux dessous + marine en bas + blanches : le sourd tenu par deux points clairs." } },
-  { id: 'l1-04', name: "Noir tee encadre camel", level: 1, vibe: 'jeune',
-    description: "Tee NOIR + chemise lin camel OUVERTE + chino sable + Schmoove. Le SEUL usage correct du noir.",
-    pieces: ['t13', 'sh6', 'pn3', 'a8', 'c3', 'a5'], scarf: 'a6', shortSwap: null, watch: 'kaki', hat: true,
-    tips: { tuck: "Tee noir front-tuck leger ; chemise camel ouverte et sortie.", buttons: "Chemise entierement ouverte.", sleeves: "Chemise retroussee avant-bras.", scarf: "Creme sur le tee — adoucit le noir.", strap: "Tabac.", note: "Le noir n'est JAMAIS seul au visage : il est encadre par le camel ouvert qui rechauffe le teint. t10/t11/t12 marchent pareil. Ceinture brun fonce (a8) qui repond au tee." } },
-  { id: 'l1-05', name: "Tabac tee sous chemise chambray", level: 1, vibe: 'inter',
-    description: "Tee tabac + chemise chambray OUVERTE + chino sable + Schmoove. Chambray rechauffe.",
-    pieces: ['t4', 'sh5', 'pn3', 'a3', 'c3', 'a5'], scarf: 'a2', shortSwap: null, watch: 'kaki', hat: true,
-    tips: { tuck: "Tee tabac front-tuck ; chambray ouverte.", buttons: "Chambray ouverte.", sleeves: "Retroussee avant-bras.", scarf: "Tabac — le chambray est froid au visage.", strap: "Kaki.", note: "Chemise chambray = froid clair au visage : le tee tabac dessous + echarpe tabac + sable rechauffent. Denim-feel maitrise." } },
-  { id: 'l1-06', name: "Navy tee sous chemise blanche", level: 1, vibe: 'jeune',
-    description: "Tee marine BB + chemise lin blanche OUVERTE + chino sable + Sebago. Nautique layering, visage encadre de blanc.",
-    pieces: ['t16', 'sh4', 'pn3', 'a3', 'c4', 'a5'], scarf: 'a1', shortSwap: null, watch: 'acier', hat: true,
-    tips: { tuck: "Tee marine front-tuck ; chemise blanche ouverte.", buttons: "Chemise ouverte.", sleeves: "Retroussee avant-bras.", scarf: "Chambray — accent bleu leger, permis car le blanc encadre le visage.", strap: "Kaki, ou la Conquest acier.", note: "Le blanc de la chemise au visage neutralise le froid du tee marine ; sable en bas + cognac (Sebago). Nautique propre." } },
-  { id: 'p2-01', name: "Signature chaude", level: 2, vibe: 'mur',
-    description: "Chemise lin camel + chino marine + Ferragamo. Le pendant chaud de ta signature.",
-    pieces: ['sh6', 'pn2', 'a3', 'c2', 'a5'], scarf: 'a6', shortSwap: null, watch: 'cuir', hat: true,
-    tips: { tuck: "Chemise rentree, ou demi-tuck.", buttons: "2 boutons ouverts.", sleeves: "Rouleau italien sous le coude.", scarf: "Creme legere — le camel chauffe deja, elle eclaire.", strap: "Tabac, ou la Huguenin.", note: "Camel au visage + marine en bas : la formule qui te va le mieux en chemise. Socquettes invisibles dans les Ferragamo." } },
-  { id: 'p2-02', name: "Tonal camel creme", level: 2, vibe: 'mur',
-    description: "Chemise lin camel + pantalon lin creme + Ferragamo. Camaieu chaud raffine.",
-    pieces: ['sh6', 'pn1', 'a3', 'c2', 'a5'], scarf: 'a6', shortSwap: 's2', watch: 'cuir', hat: true,
-    tips: { tuck: "Chemise rentree.", buttons: "2 boutons ouverts.", sleeves: "Rouleau italien.", scarf: "Creme, dans le degrade.", strap: "Tabac / Huguenin.", note: "Camel sur creme, lin sur lin : le luxe est dans la matiere. Ceinture cognac = seul relief." } },
-  { id: 'p2-03', name: "Camel olive earthy", level: 2, vibe: 'inter',
-    description: "Chemise lin camel + pantalon lin olive + Ferragamo. Deux chauds terreux.",
-    pieces: ['sh6', 'pn8', 'a3', 'c2', 'a5'], scarf: 'a6', shortSwap: 's5', watch: 'acier', hat: true,
-    tips: { tuck: "Chemise rentree ou demi-tuck (lin olive a passants) + ceinture cognac.", buttons: "2 boutons ouverts.", sleeves: "Rouleau italien.", scarf: "Creme — le point clair.", strap: "Tabac.", note: "Camel + olive = tres toi. Passe en Lacoste blanches si tu veux aerer le bas." } },
-  { id: 'p2-04', name: "Tonal tabac audace", level: 2, vibe: 'mur',
-    description: "Chemise lin camel + pantalon lin tabac + Ferragamo. Monochrome chaud franc.",
-    pieces: ['sh6', 'pn7', 'c2', 'a5'], scarf: 'a6', shortSwap: null, watch: 'cuir', hat: true,
-    tips: { tuck: "Sortie nette ou demi-tuck (cordon, pas de ceinture).", buttons: "2 boutons ouverts.", sleeves: "Rouleau italien decontracte.", scarf: "Creme — donne l'etage qui evite le bloc.", strap: "Tabac / Huguenin.", note: "Monochrome chaud niv 2 : tient car les matieres varient (lin/lin/daim) et l'echarpe eclaire. Panama = signature." } },
-  { id: 'p2-05', name: "Camel sable Sebago", level: 2, vibe: 'inter',
-    description: "Chemise lin camel + chino sable + Sebago. Chaud clair, cuir cognac.",
-    pieces: ['sh6', 'pn3', 'a3', 'c4', 'a5'], scarf: 'a6', shortSwap: 's4', watch: 'acier', hat: true,
-    tips: { tuck: "Chemise rentree + ceinture cognac raccord Sebago.", buttons: "2 boutons ouverts.", sleeves: "Rouleau italien.", scarf: "Creme legere.", strap: "Tabac, ou la Conquest acier.", note: "Degrade camel -> sable -> cognac : chaud de haut en bas, jamais repete a l'identique." } },
-  { id: 'p2-06', name: "Blanc olive old money", level: 2, vibe: 'mur',
-    description: "Chemise lin blanc + chino olive + Ferragamo. Le classique mediterraneen.",
-    pieces: ['sh4', 'pn5', 'a3', 'c2', 'a5'], scarf: 'a2', shortSwap: 's5', watch: 'cuir', hat: true,
-    tips: { tuck: "Chemise rentree + ceinture cognac.", buttons: "2 boutons ouverts.", sleeves: "Rouleau italien.", scarf: "Tabac — relie le blanc et l'olive en chaud.", strap: "Tabac.", note: "Blanc qui eclaire, olive qui pose. L'echarpe tabac est le trait d'union." } },
-  { id: 'p2-07', name: "Blanc camel Riviera", level: 2, vibe: 'mur',
-    description: "Chemise lin blanc + chino camel + Ferragamo. Lumineux et chaud.",
-    pieces: ['sh4', 'pn4', 'a3', 'c2', 'a5'], scarf: 'a2', shortSwap: 's2', watch: 'cuir', hat: true,
-    tips: { tuck: "Chemise rentree + ceinture cognac.", buttons: "2 boutons ouverts.", sleeves: "Rouleau italien.", scarf: "Tabac — l'accent chaud entre deux clairs.", strap: "Tabac / Huguenin.", note: "Blanc + camel + cognac, la carte postale Riviera. Persol ecaille + Panama = full moodboard." } },
-  { id: 'p2-08', name: "Blanc marine Sebago chic", level: 2, vibe: 'inter',
-    description: "Chemise lin blanc + chino marine + Sebago. Nautique monte d'un cran.",
-    pieces: ['sh4', 'pn2', 'a3', 'c4', 'a5'], scarf: 'a1', shortSwap: 's1', watch: 'acier', hat: true,
-    tips: { tuck: "Chemise rentree + ceinture cognac raccord Sebago.", buttons: "2 boutons ouverts.", sleeves: "Rouleau italien.", scarf: "Chambray — echo bleu, permis car le blanc encadre le visage.", strap: "Tabac, ou la Conquest acier.", note: "Version chemise du nautique. Un seul accent froid (echarpe), le cognac equilibre." } },
-  { id: 'p2-09', name: "Blanc sur tabac", level: 2, vibe: 'inter',
-    description: "Chemise lin blanc + pantalon lin tabac + Ferragamo. Detente chic, contraste doux.",
-    pieces: ['sh4', 'pn7', 'c2', 'a5'], scarf: 'a2', shortSwap: null, watch: 'acier', hat: true,
-    tips: { tuck: "Sortie nette (cordon, pas de ceinture).", buttons: "2 boutons ouverts.", sleeves: "Rouleau italien decontracte.", scarf: "Tabac — rime avec le bas.", strap: "Tabac.", note: "Chemise blanche flottante sur lin tabac : nonchalance calculee, l'echarpe tabac referme." } },
-  { id: 'p2-10', name: "Signature olive jour", level: 2, vibe: 'mur',
-    description: "Chemise lin olive + chino marine + Ferragamo. TA signature, en plein jour.",
-    pieces: ['sh3', 'pn2', 'a3', 'c2', 'a5'], scarf: 'a2', shortSwap: null, watch: 'cuir', hat: true,
-    tips: { tuck: "Chemise rentree + ceinture cognac.", buttons: "2 boutons ouverts.", sleeves: "Rouleau italien.", scarf: "Tabac — point chaud entre olive et marine.", strap: "Tabac.", note: "La tenue qui t'a defini. De jour, Panama autorise ; le soir, version p3 sans chapeau." } },
-  { id: 'p2-11', name: "Olive sable daim", level: 2, vibe: 'inter',
-    description: "Chemise lin olive + chino sable + Schmoove. Safari-chic, textures seches.",
-    pieces: ['sh3', 'pn3', 'a3', 'c3', 'a5'], scarf: 'a6', shortSwap: 's4', watch: 'acier', hat: true,
-    tips: { tuck: "Chemise rentree + ceinture cognac.", buttons: "2 boutons ouverts.", sleeves: "Rouleau italien.", scarf: "Creme — eclaire l'olive.", strap: "Tabac.", note: "Olive + sable + camel : version safari de ta palette. Socquettes invisibles." } },
-  { id: 'p2-12', name: "Olive sur creme chic", level: 2, vibe: 'inter',
-    description: "Chemise lin olive + pantalon lin creme + Ferragamo. La signature inversee.",
-    pieces: ['sh3', 'pn1', 'a3', 'c2', 'a5'], scarf: 'a6', shortSwap: 's4', watch: 'acier', hat: true,
-    tips: { tuck: "Chemise rentree + ceinture cognac.", buttons: "2 boutons ouverts.", sleeves: "Rouleau italien.", scarf: "Creme, tonal bas.", strap: "Tabac.", note: "Olive au visage, lumiere en bas : plus decontractee que la version marine." } },
-  { id: 'p2-13', name: "Chambray sable", level: 2, vibe: 'inter',
-    description: "Chemise chambray + chino sable + Ferragamo. Bleu clair pose sur du chaud.",
-    pieces: ['sh5', 'pn3', 'a3', 'c2', 'a5'], scarf: 'a2', shortSwap: 's4', watch: 'acier', hat: true,
-    tips: { tuck: "Chemise rentree + ceinture cognac.", buttons: "2 boutons ouverts.", sleeves: "Rouleau italien.", scarf: "Tabac — OBLIGATOIRE, rechauffe le chambray au col.", strap: "Kaki.", note: "Chambray = froid clair : sable en bas + tabac au cou et ton teint reste bonne mine." } },
-  { id: 'p2-14', name: "Chambray camel daim", level: 2, vibe: 'inter',
-    description: "Chemise chambray + chino camel + Schmoove. Denim-feel rechauffe au max.",
-    pieces: ['sh5', 'pn4', 'a3', 'c3', 'a5'], scarf: 'a2', shortSwap: 's2', watch: 'acier', hat: true,
-    tips: { tuck: "Chemise rentree ou demi-tuck + ceinture cognac.", buttons: "2 boutons ouverts.", sleeves: "Rouleau italien.", scarf: "Tabac au col.", strap: "Kaki.", note: "Camel en bas + camel aux pieds + tabac au cou : le chambray enveloppe de chaud. Le combo froid-au-visage le plus sur." } },
-  { id: 'p2-15', name: "Chambray marine tonal", level: 2, vibe: 'inter',
-    description: "Chemise chambray + chino marine detente + Sebago. Bleu-sur-bleu, cuir cognac.",
-    pieces: ['sh5', 'pn6', 'c4', 'a5'], scarf: 'a2', shortSwap: 's1', watch: 'acier', hat: true,
-    tips: { tuck: "Sortie nette (cordon, pas de ceinture).", buttons: "2 boutons ouverts.", sleeves: "Rouleau italien.", scarf: "Tabac — non negociable sur du bleu-sur-bleu.", strap: "Kaki, ou la Conquest acier.", note: "Le seul tonal bleu en chemise : clair (chambray) au visage sur fonce (marine), cognac aux pieds, tabac au col." } },
-  { id: 'p2-16', name: "Marine creme chic", level: 2, vibe: 'mur',
-    description: "Chemise lin marine + pantalon lin creme + Ferragamo. Contraste classique.",
-    pieces: ['sh1', 'pn1', 'a3', 'c2', 'a5'], scarf: 'a2', shortSwap: 's2', watch: 'cuir', hat: true,
-    tips: { tuck: "Chemise rentree + ceinture cognac.", buttons: "2 boutons ouverts.", sleeves: "Rouleau italien.", scarf: "Tabac — rechauffe le col marine, reflexe permanent.", strap: "Kaki, ou tabac.", note: "Marine au visage : echarpe tabac + creme lumineux + daim chaud aux pieds. Toutes les compensations sont la." } },
-  { id: 'p2-17', name: "Marine sable Sebago", level: 2, vibe: 'inter',
-    description: "Chemise lin marine + chino sable + Sebago. Nautique mat, sans blanc.",
-    pieces: ['sh1', 'pn3', 'a3', 'c4', 'a5'], scarf: 'a2', shortSwap: 's4', watch: 'acier', hat: true,
-    tips: { tuck: "Chemise rentree + ceinture cognac.", buttons: "2 boutons ouverts.", sleeves: "Rouleau italien.", scarf: "Tabac au col.", strap: "Kaki, ou la Conquest acier.", note: "Le sable remplace le blanc : plus doux, plus chaud pour ton teint. Cognac aux pieds + ceinture raccord." } },
-  { id: 'p2-18', name: "Marine sur tabac chic", level: 2, vibe: 'inter',
-    description: "Chemise lin marine + pantalon lin tabac + Ferragamo. Froid sur chaud, flottant.",
-    pieces: ['sh1', 'pn7', 'c2', 'a5'], scarf: 'a2', shortSwap: null, watch: 'acier', hat: true,
-    tips: { tuck: "Sortie nette (cordon, pas de ceinture).", buttons: "2 boutons ouverts.", sleeves: "Rouleau italien decontracte.", scarf: "Tabac — rime avec le pantalon, encadre le marine.", strap: "Kaki.", note: "Tout le chaud en bas, le marine flotte, l'echarpe tabac referme la boucle au col." } },
-  { id: 'p2-19', name: "Marine clair sable", level: 2, vibe: 'inter',
-    description: "Chemise lin marine clair + chino sable + Ferragamo. La version douce du marine.",
-    pieces: ['sh2', 'pn3', 'a3', 'c2', 'a5'], scarf: 'a2', shortSwap: 's4', watch: 'acier', hat: true,
-    tips: { tuck: "Chemise rentree + ceinture cognac.", buttons: "2 boutons ouverts.", sleeves: "Rouleau italien.", scarf: "Tabac legere.", strap: "Kaki.", note: "Marine clair moins dur au visage ; avec le sable, presque pastel chic. Facile partout." } },
-  { id: 'p2-20', name: "Marine clair olive", level: 2, vibe: 'inter',
-    description: "Chemise lin marine clair + pantalon lin olive + Schmoove. Sourd raffine.",
-    pieces: ['sh2', 'pn8', 'a3', 'c3', 'a5'], scarf: 'a2', shortSwap: 's5', watch: 'acier', hat: true,
-    tips: { tuck: "Chemise rentree (lin olive a passants) + ceinture cognac.", buttons: "2 boutons ouverts.", sleeves: "Rouleau italien.", scarf: "Tabac — le point chaud qui departage les deux sourds.", strap: "Kaki.", note: "Marine clair + olive : discret, presque camouflage chic. Tabac + daim camel apportent la chaleur." } },
-  { id: 'p2-21', name: "Polo creme marine loafers", level: 2, vibe: 'inter',
-    description: "Polo maille creme + chino marine + Ferragamo. Le polo monte en gamme.",
-    pieces: ['p1', 'pn2', 'a3', 'c2', 'a5'], scarf: 'a2', shortSwap: 's1', watch: 'acier', hat: true,
-    tips: { tuck: "Front-tuck leger + ceinture cognac.", buttons: "1 bouton ouvert.", sleeves: "Telles quelles.", scarf: "Creme, tonal haut.", strap: "Tabac.", note: "Maille creme + loafers : smart-casual sans effort. Marine ancre, cognac relie." } },
-  { id: 'p2-22', name: "Polo marine creme loafers", level: 2, vibe: 'inter',
-    description: "Polo maille marine + pantalon lin creme + Ferragamo. L'inverse, tout aussi valable.",
-    pieces: ['p2', 'pn1', 'a3', 'c2', 'a5'], scarf: 'a2', shortSwap: 's2', watch: 'acier', hat: true,
-    tips: { tuck: "Front-tuck leger + ceinture cognac.", buttons: "1 bouton ouvert.", sleeves: "Telles quelles.", scarf: "Tabac — rechauffe le col marine.", strap: "Kaki.", note: "Marine en maille au visage = echarpe tabac reflexe. Le creme renvoie la lumiere vers le haut." } },
-  { id: 'p2-23', name: "Cubain olive loafers", level: 2, vibe: 'inter',
-    description: "Polo col cubain creme + pantalon lin olive + Ferragamo. Riviera habillee.",
-    pieces: ['p3', 'pn8', 'a3', 'c2', 'a5'], scarf: 'a2', shortSwap: 's5', watch: 'acier', hat: true,
-    tips: { tuck: "Front-tuck leger (lin olive a passants) + ceinture cognac.", buttons: "2 boutons ouverts, col a plat.", sleeves: "Telles quelles.", scarf: "Creme legere.", strap: "Tabac.", note: "Cubain qui monte : olive + loafers + cognac. Garde le col bien a plat, c'est la piece maitresse." } },
-  { id: 'p2-24', name: "Terracotta sourde marine", level: 2, vibe: 'inter',
-    description: "Tee terracotta sourde ML + chino marine + Ferragamo. Accent tenu, fond profond.",
-    pieces: ['t8', 'pn2', 'a3', 'c2', 'a5'], scarf: 'a6', shortSwap: 's1', watch: 'acier', hat: true,
-    tips: { tuck: "Front-tuck leger + ceinture cognac.", sleeves: "Manches poussees sous le coude.", scarf: "Creme — jamais deux accents.", strap: "Tabac.", note: "Terracotta sur marine : contraste complementaire etouffe, tres elegant. Blanches interdites, les loafers gardent le serieux." } },
-  { id: 'p2-25', name: "Smart short Portofino", level: 2, vibe: 'inter',
-    description: "Chemise lin blanc + short lin olive + Ferragamo. Le short habille, jambes assumees.",
-    pieces: ['sh4', 's5', 'a3', 'c2', 'a5'], scarf: 'a2', shortSwap: null, watch: 'acier', hat: true,
-    tips: { tuck: "Front-tuck leger (short a passants) + ceinture cognac.", buttons: "2 boutons ouverts.", sleeves: "Rouleau italien haut, assume.", scarf: "Tabac fine, ou rien s'il fait tres chaud.", strap: "Tabac.", note: "Le seul short qui monte en niv 2 : passants + loafers sans chaussettes apparentes (socquettes invisibles). Jour uniquement." } },
-  { id: 'l2-01', name: "Creme tee sous chemise camel", level: 2, vibe: 'inter',
-    description: "Tee creme + chemise lin camel OUVERTE + chino marine + Ferragamo. Camel au visage, marine en bas.",
-    pieces: ['t1', 'sh6', 'pn2', 'a3', 'c2', 'a5'], scarf: 'a6', shortSwap: null, watch: 'acier', hat: true,
-    tips: { tuck: "Tee creme front-tuck ; chemise camel ouverte, sortie.", buttons: "Chemise ouverte.", sleeves: "Chemise retroussee, rouleau souple.", scarf: "Creme.", strap: "Tabac.", note: "Layering monte en loafers : la chemise camel mene la couleur (chaude), le marine ancre. Chic decontracte." } },
-  { id: 'l2-02', name: "Choco tee sous chemise olive", level: 2, vibe: 'inter',
-    description: "Tee choco + chemise lin olive OUVERTE + chino camel + Schmoove. Deux chauds terreux, layering.",
-    pieces: ['t17', 'sh3', 'pn4', 'a3', 'c3', 'a5'], scarf: 'a6', shortSwap: null, watch: 'acier', hat: true,
-    tips: { tuck: "Tee choco front-tuck ; chemise olive ouverte.", buttons: "Chemise ouverte.", sleeves: "Retroussee avant-bras.", scarf: "Creme.", strap: "Tabac.", note: "Olive frame + choco dessous + camel en bas : camaieu terreux profond. Socquettes invisibles." } },
-  { id: 'l2-03', name: "Tabac tee sous chemise blanche", level: 2, vibe: 'inter',
-    description: "Tee tabac + chemise lin blanche OUVERTE + chino marine + Ferragamo. Blanc encadre, tabac rechauffe.",
-    pieces: ['t4', 'sh4', 'pn2', 'a3', 'c2', 'a5'], scarf: 'a2', shortSwap: null, watch: 'acier', hat: true,
-    tips: { tuck: "Tee tabac front-tuck ; chemise blanche ouverte.", buttons: "Chemise ouverte.", sleeves: "Retroussee.", scarf: "Tabac.", strap: "Tabac.", note: "Le blanc encadre le visage, le tabac (tee + echarpe) apporte la chaleur, marine en bas. Layering propre." } },
-  { id: 'l2-04', name: "Terracotta tee sous chemise blanche", level: 2, vibe: 'jeune',
-    description: "Tee terracotta + chemise lin blanche OUVERTE + chino sable + Lacoste. L'accent pop sous le blanc.",
-    pieces: ['t14', 'sh4', 'pn3', 'a3', 'c1', 'a5'], scarf: 'a6', shortSwap: null, watch: 'acier', hat: true,
-    tips: { tuck: "Tee terracotta front-tuck ; chemise blanche ouverte.", buttons: "Chemise ouverte.", sleeves: "Retroussee.", scarf: "Creme — pas de 2e accent.", strap: "Kaki.", note: "Le blanc encadre, le terracotta est le seul accent (visible a l'ouverture), sable en bas. Frais et net." } },
-  { id: 'l2-05', name: "Navy tee veste camel", level: 2, vibe: 'jeune',
-    description: "Tee marine Aigle + veste lin camel ouverte + chino sable + Ferragamo. La veste camel rechauffe le marine.",
-    pieces: ['t18', 'v2', 'pn3', 'a3', 'c2', 'a5'], scarf: 'a2', shortSwap: null, watch: 'acier', hat: true,
-    tips: { tuck: "Tee marine sorti net (hem court).", buttons: "Veste ouverte.", sleeves: "Veste lin : manches poussees mi-avant-bras.", scarf: "Tabac fine, ou rien — la veste rechauffe deja.", strap: "Kaki.", note: "La veste camel ouverte EST le rechauffage du marine — alternative structuree a l'echarpe. Sable + loafers finissent." } },
-  { id: 'l2-06', name: "Maille choco veste marine", level: 2, vibe: 'inter',
-    description: "Tee maille chocolat + veste lin marine ouverte + pantalon lin creme + Ferragamo. Trois etages nets.",
-    pieces: ['t15', 'v1', 'pn1', 'a3', 'c2', 'a5'], scarf: 'a6', shortSwap: null, watch: 'acier', hat: true,
-    tips: { tuck: "Front-tuck leger + ceinture cognac.", buttons: "Veste ouverte.", sleeves: "Veste poussee mi-avant-bras si detendu.", scarf: "Creme, entre le choco et le marine.", strap: "Tabac.", note: "Choco (chaud) au visage sous marine structure, creme qui illumine en bas. Le layering niv 2 le plus flatteur." } },
-  { id: 'l2-07', name: "Surchemise taupe chic", level: 2, vibe: 'inter',
-    description: "Tee creme + sur-chemise maille taupe + chino marine + Ferragamo. La surchemise = ta veste douce.",
-    pieces: ['t1', 'm1', 'pn2', 'a3', 'c2', 'a5'], scarf: 'a6', shortSwap: null, watch: 'acier', hat: true,
-    tips: { tuck: "Tee front-tuck + ceinture cognac ; surchemise ouverte, sortie.", buttons: "Surchemise ouverte.", sleeves: "Legerement poussee.", scarf: "Creme sur le tee.", strap: "Tabac.", note: "Maille taupe (chaud) au visage, marine ancre, loafers montent le tout. Anti-clim de casino niv 2." } },
-  { id: 'p3-01', name: "Signature olive soir", level: 3, vibe: 'mur',
-    description: "Chemise lin olive + chino marine + Ferragamo. Ta signature, lumiere du soir.",
-    pieces: ['sh3', 'pn2', 'a3', 'c2', 'a5'], scarf: 'a2', shortSwap: null, watch: 'cuir', hat: false,
-    tips: { tuck: "Chemise rentree, nette.", buttons: "1-2 boutons ouverts, pas plus le soir.", sleeves: "Rouleau italien, ou manches en place selon le lieu.", scarf: "Tabac drapee souple.", strap: "Tabac — la Huguenin, cadran argent qui accroche la lumiere.", note: "Le soir, le chapeau se range : l'olive fait le travail seul. Montre habillee, rien d'autre." } },
-  { id: 'p3-02', name: "Blanc marine soir", level: 3, vibe: 'mur',
-    description: "Chemise lin blanc + chino marine + Ferragamo. L'intemporel du diner.",
-    pieces: ['sh4', 'pn2', 'a3', 'c2', 'a5'], scarf: 'a6', shortSwap: null, watch: 'cuir', hat: false,
-    tips: { tuck: "Chemise rentree impeccable.", buttons: "1-2 boutons ouverts.", sleeves: "En place, ou rouleau italien discret.", scarf: "Creme tres legere, ou rien.", strap: "Tabac / Huguenin.", note: "Blanc/marine/cognac le soir : zero risque, distinction maximale. La tenue restaurant a connaitre." } },
-  { id: 'p3-03', name: "Camel creme veste marine", level: 3, vibe: 'mur',
-    description: "Chemise lin camel + pantalon lin creme + veste lin marine + Ferragamo. Resto chic chaud.",
-    pieces: ['sh6', 'pn1', 'v1', 'a3', 'c2', 'a5'], scarf: 'a2', shortSwap: null, watch: 'cuir', hat: false,
-    tips: { tuck: "Chemise rentree.", buttons: "Chemise 1-2 ouverts ; veste ouverte ou 1 bouton.", sleeves: "Veste manches en place le soir.", scarf: "Tabac fine sous la veste — ou skip, ca chauffe deja.", strap: "Tabac / Huguenin.", note: "Camel au visage + creme lumineux + marine structurant : soiree chaude par excellence. Bracelet cuir obligatoire." } },
-  { id: 'p3-04', name: "Tonal camel soir", level: 3, vibe: 'mur',
-    description: "Chemise lin camel + pantalon lin creme + veste lin camel + Ferragamo. Camaieu enveloppant.",
-    pieces: ['sh6', 'pn1', 'v2', 'a3', 'c2', 'a5'], scarf: 'a6', shortSwap: null, watch: 'cuir', hat: false,
-    tips: { tuck: "Chemise rentree.", buttons: "Chemise 2 ouverts ; veste ouverte.", sleeves: "Veste en place.", scarf: "Creme, tres discrete.", strap: "Tabac / Huguenin.", note: "Camel sur camel + creme : magnifique en lumiere chaude. Le daim chestnut aux pieds referme sans repeter." } },
-  { id: 'p3-05', name: "Blanc camel veste marine", level: 3, vibe: 'mur',
-    description: "Chemise lin blanc + chino camel + veste lin marine + Ferragamo. L'equilibre parfait.",
-    pieces: ['sh4', 'pn4', 'v1', 'a3', 'c2', 'a5'], scarf: 'a6', shortSwap: null, watch: 'cuir', hat: false,
-    tips: { tuck: "Chemise rentree + ceinture cognac.", buttons: "Chemise 1-2 ouverts ; veste ouverte ou 1 bouton.", sleeves: "Veste en place.", scarf: "Creme discrete.", strap: "Tabac / Huguenin.", note: "Blanc lumineux, camel chaud, marine structurant : chaque etage a son role. La soiree la plus equilibree." } },
-  { id: 'p3-06', name: "Marine creme veste camel", level: 3, vibe: 'mur',
-    description: "Chemise lin marine + pantalon lin creme + veste lin camel + Ferragamo. Marine au visage corrige deux fois.",
-    pieces: ['sh1', 'pn1', 'v2', 'a3', 'c2', 'a5'], scarf: 'a2', shortSwap: null, watch: 'cuir', hat: false,
-    tips: { tuck: "Chemise rentree.", buttons: "Chemise 1-2 ouverts ; veste ouverte.", sleeves: "Veste en place le soir.", scarf: "Tabac sous la veste — rechauffe le col marine.", strap: "Tabac / Huguenin.", note: "Marine au visage encadre par la veste camel + echarpe tabac ; creme en bas pour la lumiere. Tres maitrise." } },
-  { id: 'p3-07', name: "Blanc olive soir", level: 3, vibe: 'mur',
-    description: "Chemise lin blanc + pantalon lin olive + Ferragamo. Soir d'ete terreux, sans veste.",
-    pieces: ['sh4', 'pn8', 'a3', 'c2', 'a5'], scarf: 'a2', shortSwap: null, watch: 'cuir', hat: false,
-    tips: { tuck: "Chemise rentree (lin olive a passants) + ceinture cognac.", buttons: "2 boutons ouverts.", sleeves: "Rouleau italien, ou en place.", scarf: "Tabac — relie blanc et olive.", strap: "Tabac / Huguenin.", note: "Old money mediterraneen au coucher du soleil. Sans veste : la matiere du lin et la montre portent le niveau." } },
-  { id: 'p3-08', name: "Blanc marine detente soir", level: 3, vibe: 'inter',
-    description: "Chemise lin blanc + pantalon lin marine detente + veste lin camel + Ferragamo. Soir tiede relache.",
-    pieces: ['sh4', 'pn9', 'v2', 'c2', 'a5'], scarf: 'a6', shortSwap: null, watch: 'cuir', hat: false,
-    tips: { tuck: "Chemise sortie nette (cordon, on assume le relache).", buttons: "Chemise 2 ouverts ; veste ouverte.", sleeves: "Veste poussee si detendu, en place sinon.", scarf: "Creme legere.", strap: "Tabac / Huguenin.", note: "Blanc flottant, marine souple, camel qui rechauffe. Terrasse du soir quand il fait encore doux." } },
-  { id: 'p3-09', name: "Maille choco veste marine soir", level: 3, vibe: 'inter',
-    description: "Tee maille chocolat + veste lin marine + chino marine + Ferragamo. Soir texture.",
-    pieces: ['t15', 'v1', 'pn2', 'a3', 'c2', 'a5'], scarf: 'a6', shortSwap: null, watch: 'cuir', hat: false,
-    tips: { tuck: "Front-tuck leger + ceinture cognac.", buttons: "Veste ouverte, ou 1 bouton.", sleeves: "Veste en place le soir.", scarf: "Creme tres fine, ou rien.", strap: "Tabac / Huguenin.", note: "Choco maille (chaud) au visage sous veste marine ; le meme marine chino en bas passe car les plans ne se touchent pas. Le seul tee qui monte au soir, grace a la maille + la veste." } },
-  { id: 'p3-10', name: "Marine clair creme soir", level: 3, vibe: 'inter',
-    description: "Chemise lin marine clair + pantalon lin creme + Ferragamo. Soiree legere, sans veste.",
-    pieces: ['sh2', 'pn1', 'a3', 'c2', 'a5'], scarf: 'a2', shortSwap: null, watch: 'cuir', hat: false,
-    tips: { tuck: "Chemise rentree + ceinture cognac.", buttons: "2 boutons ouverts.", sleeves: "Rouleau italien, ou en place.", scarf: "Tabac legere au col.", strap: "Tabac / Huguenin.", note: "Version douce du marine/creme : moins de contraste, plus frais. Diner tot ou verre au soleil couchant." } },
-  { id: 'p3-11', name: "Camel olive veste marine soir", level: 3, vibe: 'mur',
-    description: "Chemise lin camel + pantalon lin olive + veste lin marine + Ferragamo. Chaud terreux structure.",
-    pieces: ['sh6', 'pn8', 'v1', 'a3', 'c2', 'a5'], scarf: 'a6', shortSwap: null, watch: 'cuir', hat: false,
-    tips: { tuck: "Chemise rentree (lin olive a passants) + ceinture cognac.", buttons: "Chemise 2 ouverts ; veste ouverte.", sleeves: "Veste en place.", scarf: "Creme.", strap: "Tabac / Huguenin.", note: "Camel au visage, olive terreux en bas, marine qui structure : soiree chaude a caractere. Bracelet cuir." } },
-  { id: 'p3-12', name: "Blanc sable veste camel soir", level: 3, vibe: 'inter',
-    description: "Chemise lin blanc + chino sable + veste lin camel + Ferragamo. Camaieu clair chaud du soir.",
-    pieces: ['sh4', 'pn3', 'v2', 'a3', 'c2', 'a5'], scarf: 'a6', shortSwap: null, watch: 'cuir', hat: false,
-    tips: { tuck: "Chemise rentree + ceinture cognac.", buttons: "Chemise 2 ouverts ; veste ouverte.", sleeves: "Veste en place.", scarf: "Creme.", strap: "Tabac / Huguenin.", note: "Blanc + sable + camel : tout clair et chaud, doux en lumiere du soir. Elegant sans etre sombre." } },
-  { id: 'l3-01', name: "Noir tee veste camel soir", level: 3, vibe: 'mur',
-    description: "Tee NOIR + veste lin camel ouverte + pantalon lin creme + Ferragamo. Le noir habille, encadre par le camel.",
-    pieces: ['t13', 'v2', 'pn1', 'a3', 'c2', 'a5'], scarf: 'a6', shortSwap: null, watch: 'cuir', hat: false,
-    tips: { tuck: "Tee noir front-tuck + ceinture cognac ; veste camel ouverte.", buttons: "Veste ouverte.", sleeves: "Veste en place le soir.", scarf: "Creme — adoucit le noir au col.", strap: "Tabac / Huguenin.", note: "Version soir du noir encadre : la veste camel (chaude) frame le visage, le tee noir reste un fond. Creme en bas. t10/t11/t12 marchent pareil." } },
-  { id: 'p4-01', name: "Formel marine", level: 4, vibe: 'mur',
-    description: "Chemise lin blanc + chino marine + veste lin marine + Ferragamo. Le formel de reference.",
-    pieces: ['sh4', 'pn2', 'v1', 'a3', 'c2', 'a5'], scarf: 'a6', shortSwap: null, watch: 'cuir', hat: false,
-    tips: { tuck: "Chemise rentree, impeccable.", buttons: "Chemise fermee sauf le 1er ; veste 1 bouton.", sleeves: "Veste manches en place, jamais retroussees.", scarf: "Creme en pochette d'esprit, ou rien.", strap: "Tabac — la Huguenin croco, c'est SON moment.", note: "Faux costume marine en lin : blanc + marine + marine, cognac aux pieds. Cocktails, evenements du soir." } },
-  { id: 'p4-02', name: "Ceremonie chaude camel", level: 4, vibe: 'mur',
-    description: "Chemise lin camel + chino marine + veste lin marine + Ferragamo. Le formel version chaude.",
-    pieces: ['sh6', 'pn2', 'v1', 'a3', 'c2', 'a5'], scarf: 'a6', shortSwap: null, watch: 'cuir', hat: false,
-    tips: { tuck: "Chemise rentree, impeccable.", buttons: "Chemise fermee sauf le 1er ; veste 1 bouton.", sleeves: "Veste en place.", scarf: "Creme tres fine, ou rien.", strap: "Tabac — Huguenin croco.", note: "La chemise camel remplace le blanc : ton visage gagne en chaleur sous la lumiere artificielle. Faux costume marine, coeur chaud." } },
-  { id: 'p4-03', name: "Ceremonie jour olive", level: 4, vibe: 'mur',
-    description: "Chemise lin olive + pantalon lin creme + veste lin camel + Ferragamo. Mariage civil, vernissage.",
-    pieces: ['sh3', 'pn1', 'v2', 'a3', 'c2', 'a5'], scarf: 'a2', shortSwap: null, watch: 'cuir', hat: true,
-    tips: { tuck: "Chemise rentree, impeccable.", buttons: "Chemise fermee sauf le 1er ; veste 1 bouton.", sleeves: "Veste en place.", scarf: "Tabac raffinee, drapee sous la veste.", strap: "Tabac / Huguenin.", note: "Ta palette en ceremonie de jour : olive signature, creme lumineux, camel structurant. Panama autorise dehors — c'est meme lui qui signe." } },
-  { id: 'p4-04', name: "Garden party clair", level: 4, vibe: 'mur',
-    description: "Chemise lin blanc + pantalon lin creme + veste lin camel + Ferragamo. Ceremonie champetre claire.",
-    pieces: ['sh4', 'pn1', 'v2', 'a3', 'c2', 'a5'], scarf: 'a6', shortSwap: null, watch: 'cuir', hat: true,
-    tips: { tuck: "Chemise rentree, impeccable.", buttons: "Chemise fermee sauf le 1er ; veste 1 bouton.", sleeves: "Veste en place, toujours.", scarf: "Creme tonal, ou pochette.", strap: "Tabac / Huguenin.", note: "Blanc + creme + camel : le formel le moins strict, le plus estival. Version jour du formel — Panama dehors, retire a table." } },
-  { id: 'p4-05', name: "Garden party olive", level: 4, vibe: 'mur',
-    description: "Chemise lin blanc + pantalon lin olive + veste lin camel + Ferragamo. Ceremonie exterieure.",
-    pieces: ['sh4', 'pn8', 'v2', 'a3', 'c2', 'a5'], scarf: 'a6', shortSwap: null, watch: 'cuir', hat: true,
-    tips: { tuck: "Chemise rentree impeccable (lin olive a passants) + ceinture cognac.", buttons: "Chemise fermee sauf le 1er ; veste 1 bouton.", sleeves: "Veste en place, jamais retroussee.", scarf: "Creme raffinee, ou pochette.", strap: "Tabac / Huguenin — obligatoire au formel.", note: "Le lin olive en ceremonie : blanc + olive + camel = lumineux et champetre. Mariage exterieur, bapteme, remise de prix." } },
-  { id: 'p4-06', name: "Tonal camel ceremonie soir", level: 4, vibe: 'mur',
-    description: "Chemise lin camel + pantalon lin creme + veste lin camel + Ferragamo. Camaieu chaud sophistique, cérémonie du soir.",
-    pieces: ['sh6', 'pn1', 'v2', 'a3', 'c2', 'a5'], scarf: 'a6', shortSwap: null, watch: 'cuir', hat: false,
-    tips: { tuck: "Chemise rentree, impeccable.", buttons: "Chemise fermee sauf le 1er ; veste 1 bouton.", sleeves: "Veste en place.", scarf: "Creme tres fine, ou pochette.", strap: "Tabac — Huguenin croco.", note: "Camel sur camel + creme en ceremonie du soir : enveloppant et raffine sous lumiere chaude. Le daim chestnut referme." } },
-  { id: 'l1-07', name: "Creme + surchemise taupe", level: 1, vibe: 'inter',
-    description: "Tee creme + sur-chemise maille taupe ouverte + chino sable + Verbenas. La couche chaude douce.",
-    pieces: ['t1', 'm1', 'pn3', 'a3', 'c5', 'a5'], scarf: 'a2', shortSwap: 's4', watch: 'kaki', hat: true,
-    tips: { tuck: "Tee front-tuck + ceinture cognac ; surchemise ouverte, sortie.", buttons: "Surchemise ouverte.", sleeves: "Legerement poussee.", scarf: "Tabac — profondeur sur le camaieu clair.", strap: "NATO kaki, ou Acier.", note: "Surchemise taupe (chaud) au visage, sable en bas, daim tabac : camaieu terreux doux. Ta veste d'ete alternative." } },
-  { id: 'l1-08', name: "Choco + surchemise taupe marine", level: 1, vibe: 'inter',
-    description: "Tee choco + sur-chemise maille taupe ouverte + chino marine + Lacoste. Chaud au visage, marine ancre.",
-    pieces: ['t17', 'm1', 'pn2', 'a3', 'c1', 'a5'], scarf: 'a6', shortSwap: 's1', watch: 'kaki', hat: true,
-    tips: { tuck: "Tee choco front-tuck + ceinture cognac ; surchemise ouverte.", buttons: "Surchemise ouverte.", sleeves: "Legerement poussee.", scarf: "Creme — le point clair entre choco/taupe et marine.", strap: "NATO kaki.", note: "Deux chauds (choco + taupe) au visage, marine en bas, blanches pour aerer. La crème est ici justifiee : elle eclaire un haut fonce." } },
-  { id: 'l1-09', name: "Tabac + surchemise taupe olive", level: 1, vibe: 'inter',
-    description: "Tee tabac + sur-chemise maille taupe ouverte + lin olive + Schmoove. Earthy total.",
-    pieces: ['t4', 'm1', 'pn8', 'a3', 'c3', 'a5'], scarf: 'a6', shortSwap: 's5', watch: 'kaki', hat: true,
-    tips: { tuck: "Demi-tuck (lin olive a passants) + ceinture cognac ; surchemise ouverte.", buttons: "Surchemise ouverte.", sleeves: "Poussee avant-bras.", scarf: "Creme — eclaire le camaieu terreux.", strap: "NATO kaki.", note: "Tabac + taupe + olive + daim camel : camaieu terrain sec, tres toi. Socquettes invisibles." } },
-  { id: 'p1-33', name: "Tabac chino olive Verbenas", level: 1, vibe: 'jeune',
-    description: "Tee tabac + chino olive + Verbenas. Plein chaud sur olive, semelle corde.",
-    pieces: ['t4', 'pn5', 'a3', 'c5', 'a5'], scarf: 'a2', shortSwap: 's5', watch: 'kaki', hat: true,
-    tips: { tuck: "Front-tuck leger + ceinture cognac.", sleeves: "Tee retrousse 1 pli.", scarf: "Tabac — repond au tee, profondeur.", strap: "NATO kaki.", note: "Tabac (chaud) au visage, olive en bas, daim tabac : le chino olive enfin exploite. Socquettes invisibles." } },
-  { id: 'p2-26', name: "Camel chino olive earthy", level: 2, vibe: 'inter',
-    description: "Chemise lin camel + chino olive + Ferragamo. Deux chauds terreux, version chino.",
-    pieces: ['sh6', 'pn5', 'a3', 'c2', 'a5'], scarf: 'a6', shortSwap: 's5', watch: 'acier', hat: true,
-    tips: { tuck: "Chemise rentree ou demi-tuck + ceinture cognac.", buttons: "2 boutons ouverts.", sleeves: "Rouleau italien.", scarf: "Creme — eclaire le camel.", strap: "Acier, ou Cuir pour habiller.", note: "Camel au visage + chino olive (plus structure que le lin olive) : earthy chic. Socquettes invisibles." } },
-  { id: 'p2-27', name: "Blanc chino olive Sebago", level: 2, vibe: 'inter',
-    description: "Chemise lin blanc + chino olive + Sebago. Old money mediterraneen, cuir cognac.",
-    pieces: ['sh4', 'pn5', 'a3', 'c4', 'a5'], scarf: 'a2', shortSwap: 's5', watch: 'acier', hat: true,
-    tips: { tuck: "Chemise rentree + ceinture cognac raccord Sebago.", buttons: "2 boutons ouverts.", sleeves: "Rouleau italien.", scarf: "Tabac — relie blanc et olive en chaud.", strap: "Acier (Conquest), ou Cuir.", note: "Blanc qui eclaire, olive qui pose, cognac aux pieds : old money. L'echarpe tabac est le trait d'union." } },
-  { id: 'p1-34', name: "Polo marine lin creme Sebago", level: 1, vibe: 'inter',
-    description: "Polo maille marine + pantalon lin creme + Sebago. Nautique, col rechauffe.",
-    pieces: ['p2', 'pn1', 'a3', 'c4', 'a5'], scarf: 'a2', shortSwap: 's2', watch: 'acier', hat: true,
-    tips: { tuck: "Front-tuck leger + ceinture cognac.", buttons: "1 bouton ouvert.", sleeves: "Telles quelles.", scarf: "Tabac — rechauffe le col marine, reflexe permanent.", strap: "Acier (Conquest) — SON terrain.", note: "Marine (froid) rechauffe par le creme lumineux + cognac aux pieds + echarpe tabac au col." } },
-  { id: 'l1-10', name: "Olive tee chemise camel", level: 1, vibe: 'jeune',
-    description: "Tee olive + chemise lin camel ouverte + chino sable + Schmoove. Deux chauds, camel au visage.",
-    pieces: ['t3', 'sh6', 'pn3', 'a3', 'c3', 'a5'], scarf: 'a6', shortSwap: 's4', watch: 'kaki', hat: true,
-    tips: { tuck: "Tee olive front-tuck ; chemise camel ouverte, sortie.", buttons: "Chemise ouverte.", sleeves: "Chemise retroussee avant-bras.", scarf: "Creme — eclaire le camel au visage.", strap: "NATO kaki.", note: "La chemise camel (au visage) mene la couleur : chaude. Olive tee dessous + sable en bas. Camaieu terreux, socquettes invisibles." } },
-  { id: 'l1-11', name: "Blanc tee chemise olive", level: 1, vibe: 'jeune',
-    description: "Tee blanc + chemise lin olive ouverte + chino sable + Verbenas. Olive encadre, blanc dessous.",
-    pieces: ['t9', 'sh3', 'pn3', 'a3', 'c5', 'a5'], scarf: 'a6', shortSwap: 's4', watch: 'kaki', hat: true,
-    tips: { tuck: "Tee blanc front-tuck ; chemise olive ouverte.", buttons: "Chemise ouverte.", sleeves: "Retroussee avant-bras.", scarf: "Creme.", strap: "NATO kaki.", note: "Chemise olive (complement) au visage, blanc lumineux a l'ouverture, sable en bas, daim tabac. Frais et terreux." } },
-  { id: 'l1-12', name: "Terracotta tee chemise olive", level: 1, vibe: 'jeune',
-    description: "Tee terracotta + chemise lin olive ouverte + chino sable + Lacoste. L'accent sous cadre olive.",
-    pieces: ['t14', 'sh3', 'pn3', 'a3', 'c1', 'a5'], scarf: 'a6', shortSwap: 's4', watch: 'kaki', hat: true,
-    tips: { tuck: "Tee terracotta front-tuck ; chemise olive ouverte.", buttons: "Chemise ouverte.", sleeves: "Retroussee.", scarf: "Creme — jamais un 2e accent.", strap: "NATO kaki.", note: "Un seul accent (le terracotta, visible a l'ouverture), encadre par l'olive. Sable + blanches. L'olive n'est pas un accent, l'accord tient." } },
-  { id: 'l2-08', name: "Choco tee chemise blanche olive", level: 2, vibe: 'inter',
-    description: "Tee choco + chemise lin blanche ouverte + lin olive + Ferragamo. Blanc encadre, choco chaud, olive terreux.",
-    pieces: ['t17', 'sh4', 'pn8', 'a3', 'c2', 'a5'], scarf: 'a2', shortSwap: 's5', watch: 'acier', hat: true,
-    tips: { tuck: "Tee choco front-tuck (lin olive a passants) + ceinture cognac ; chemise blanche ouverte.", buttons: "Chemise ouverte.", sleeves: "Retroussee avant-bras.", scarf: "Tabac — profondeur sous le blanc.", strap: "Acier, ou Cuir.", note: "Blanc (au visage) encadre + eclaire, choco chaud a l'ouverture, olive en bas. Layering monte en loafers." } },
-  { id: 'l1-13', name: "Tabac tee chemise marine clair", level: 1, vibe: 'inter',
-    description: "Tee tabac + chemise lin marine clair ouverte + chino sable + Schmoove. Marine clair rechauffe.",
-    pieces: ['t4', 'sh2', 'pn3', 'a3', 'c3', 'a5'], scarf: 'a2', shortSwap: 's4', watch: 'kaki', hat: true,
-    tips: { tuck: "Tee tabac front-tuck ; chemise marine clair ouverte.", buttons: "Chemise ouverte.", sleeves: "Retroussee.", scarf: "Tabac — la chemise est froide au visage, on rechauffe.", strap: "NATO kaki.", note: "Chemise marine clair (froid doux) au visage : le tee tabac a l'ouverture + echarpe tabac + sable + daim camel rechauffent. Marine clair moins dur que le marine profond." } },
-  { id: 'l1-14', name: "Noir tee chemise olive", level: 1, vibe: 'jeune',
-    description: "Tee NOIR + chemise lin olive ouverte + chino sable + Schmoove. 2e version du noir encadre.",
-    pieces: ['t13', 'sh3', 'pn3', 'a8', 'c3', 'a5'], scarf: 'a6', shortSwap: 's4', watch: 'kaki', hat: true,
-    tips: { tuck: "Tee noir front-tuck + ceinture brun fonce ; chemise olive ouverte, sortie.", buttons: "Chemise entierement ouverte.", sleeves: "Chemise retroussee avant-bras.", scarf: "Creme — adoucit le noir.", strap: "NATO kaki.", note: "Le noir n'est JAMAIS seul au visage : encadre par l'olive ouverte. t10/t11/t12 marchent pareil. Ceinture brune (a8) qui repond au tee." } },
-  { id: 'p1-35', name: "Marine tee chino camel", level: 1, vibe: 'inter',
-    description: "Tee marine + chino camel + Schmoove. Froid rechauffe par le camel + tabac.",
-    pieces: ['t7', 'pn4', 'a3', 'c3', 'a5'], scarf: 'a2', shortSwap: 's2', watch: 'kaki', hat: true,
-    tips: { tuck: "Front-tuck leger + ceinture cognac.", sleeves: "Tee retrousse 1 pli.", scarf: "Tabac — rechauffe le col marine.", strap: "NATO kaki.", note: "Marine au visage : camel en bas + daim camel + tabac au cou. Le tee marine Uniqlo enfin sorti. Socquettes invisibles." } },
-  { id: 'p1-36', name: "Creme short terracotta Verbenas", level: 1, vibe: 'jeune',
-    description: "Tee creme + short terracotta + Verbenas. L'accent d'ete, pied chaud.",
-    pieces: ['t5', 's3', 'c5', 'a5'], scarf: 'a6', shortSwap: null, watch: 'kaki', hat: true,
-    tips: { tuck: "Rien rentre (short a cordon), pas de ceinture.", sleeves: "Tee retrousse 1 pli.", scarf: "Creme — jamais un 2e accent.", strap: "NATO kaki.", note: "Un seul accent (le short terracotta), tout le reste neutre chaud. Le short terracotta enfin re-sorti. Socquettes invisibles ou pieds nus." } },
-  { id: 'p1-37', name: "Sweat creme lin tabac", level: 1, vibe: 'jeune',
-    description: "Sweat maille fine creme + pantalon lin tabac + Verbenas. Cocon tonal chaud.",
-    pieces: ['m2', 'pn7', 'c5', 'a5'], scarf: 'a6', shortSwap: null, watch: 'kaki', hat: true,
-    tips: { tuck: "Sorti net — un sweat ne se rentre pas (cordon en bas).", sleeves: "Poussees legerement.", scarf: "Creme — eclaire le camaieu chaud.", strap: "NATO kaki.", note: "Creme (maille) au visage + lin tabac + daim tabac : tout doux, tout chaud. Le sweat + Verbenas, creneau detente stylee." } }
-];
+const CURATED_OUTFITS = [];
 
 // OUTFITS = tenues curatees (en dur) + tenues generees par Claude (persistees).
 let generatedOutfits = [];          // tenues generees par Claude, gardees en local
 let OUTFITS = CURATED_OUTFITS.slice();
 let generatedCount = 0;
 
-const DEFAULT_WISHLIST = [
-  // ===================== TEES =====================
-  { id: 'b1', emoji: '🎽', name: "Marinière rayée écru/marine", detail: "Le rayé breton qui te manque — staple Riviera/old-money, parfait sous une veste ou seul. Saint James, Armor-Lux ou Polo RL.", price: "400-900 MOP", priority: 'soon', cat: 'tee', tag: 'NOUVELLE PIÈCE', purchased: false },
-  { id: 'b2', emoji: '👔', name: "Tee blanc Polo RL", detail: "✅ ACQUIS. Layer sous chemises ouvertes (look italian summer). Déjà dans tes pièces.", price: "300-450 MOP", priority: 'later', cat: 'tee', tag: 'ACQUIS', purchased: true },
-  { id: 'b3', emoji: '🌲', name: "Tee vert forêt / sauge chaud", detail: "Le seul accent vert qui te manque (la palette accent l'appelle). Reste sur un vert CHAUD, pas froid. American Vintage / Uniqlo U.", price: "300-500 MOP", priority: 'later', cat: 'tee', tag: 'COMPLÉTER PALETTE', purchased: false },
-  { id: 'b4', emoji: '👕', name: "Tee marine (upgrade)", detail: "✅ ACQUIS (Brooks Brothers au final, pas RL). Upgrade du marine Uniqlo, maille plus dense. Dans tes pièces.", price: "300-450 MOP", priority: 'later', cat: 'tee', tag: 'ACQUIS', purchased: true },
-
-  // ===================== CHEMISES =====================
-  { id: 'b5', emoji: '👕', name: "Chemise lin camel / tabac", detail: "✅ ACQUIS (Polo RL, camel/tabac). La chemise lin chaude qui te manquait — t'éclaire le visage. Dans tes pièces (sh6).", price: "800-1200 MOP", priority: 'later', cat: 'chemise', tag: 'ACQUIS', purchased: true },
-  { id: 'b6', emoji: '👕', name: "Chemise lin sable / écru", detail: "2e chemise claire chaude, plus douce que le blanc. Top tonal avec chino sable/camel. Polo RL / Massimo Dutti.", price: "800-1200 MOP", priority: 'later', cat: 'chemise', tag: 'COMPLÉTER PALETTE', purchased: false },
-  { id: 'b7', emoji: '🤍', name: "Chemise oxford blanche (coton)", detail: "Un blanc plus structuré/net que le lin (qui froisse) pour les niveaux 3-4. Polo RL Oxford ou Charvet (premium).", price: "700-1800 MOP", priority: 'later', cat: 'chemise', tag: 'NOUVELLE PIÈCE', purchased: false },
-
-  // ===================== HENLEY & AUTRES HAUTS =====================
-  { id: 'b8', emoji: '🌬️', name: "Henley écru ou olive (3 boutons)", detail: "Entre le tee et la chemise, col tunisien — le chaînon manquant pour le layering italian summer. American Vintage / Sunspel / Massimo Dutti.", price: "400-800 MOP", priority: 'soon', cat: 'henley', tag: 'NOUVELLE PIÈCE', purchased: false },
-  { id: 'b9', emoji: '🫒', name: "Polo maille olive", detail: "Complète le trio polo (tu as crème + marine) et matche ta chemise olive signature en version maille. Polo RL.", price: "600-900 MOP", priority: 'soon', cat: 'henley', tag: 'COMPLÉTER PALETTE', purchased: false },
-  { id: 'b10', emoji: '🧥', name: "Surchemise / chemise-veste lin écru ou sable", detail: "Overshirt structuré : le niveau 3 sans la formalité de la veste. Tu as la maille marron, pas de version lin claire. Polo RL / Boglioli.", price: "1500-3500 MOP", priority: 'later', cat: 'henley', tag: 'NOUVELLE PIÈCE', purchased: false },
-  { id: 'b11', emoji: '🪸', name: "Polo maille rayé ou terracotta", detail: "Accent estival optionnel (rayé écru/marine, ou uni terracotta). Sunspel / Polo RL.", price: "600-900 MOP", priority: 'later', cat: 'henley', tag: 'OPTIONNEL', purchased: false },
-
-  // ===================== SWEAT / MAILLE =====================
-  { id: 'b12', emoji: '🧶', name: "Pull col rond maille fine camel ou écru", detail: "Couche chaude près du visage qui te manque (tu n'as qu'un sweat + la surchemise). Mi-saison Macau. Uniqlo cashmere / Polo RL.", price: "600-1500 MOP", priority: 'soon', cat: 'sweat', tag: 'NOUVELLE PIÈCE', purchased: false },
-  { id: 'b13', emoji: '🧶', name: "Cardigan maille fine marine", detail: "Alternative chic à la veste lin pour la mi-saison (oct-déc Macau). Se porte ouvert sur tee/chemise. Polo RL / Sunspel.", price: "900-1800 MOP", priority: 'later', cat: 'sweat', tag: 'NOUVELLE PIÈCE', purchased: false },
-  { id: 'b14', emoji: '🧶', name: "Pull col V ou zip maille olive/taupe", detail: "Variation chaude optionnelle, layering sur chemise. Polo RL / Uniqlo.", price: "600-1200 MOP", priority: 'later', cat: 'sweat', tag: 'OPTIONNEL', purchased: false },
-
-  // ===================== PANTALONS =====================
-  { id: 'b15', emoji: '👖', name: "Chino tabac / cognac", detail: "Bas chaud manquant pour les tenues full palette chaude (tu as marine/sable/camel/olive, pas de tabac). Polo Bedford / Massimo Dutti.", price: "600-900 MOP", priority: 'soon', cat: 'pantalon', tag: 'COMPLÉTER PALETTE', purchased: false },
-  { id: 'b16', emoji: '👖', name: "Pantalon lin marine", detail: "Version chic et estivale du chino marine, pour les niveaux 3+. Polo RL / Massimo Dutti.", price: "700-1100 MOP", priority: 'later', cat: 'pantalon', tag: 'COMPLÉTER PALETTE', purchased: false },
-  { id: 'b17', emoji: '👖', name: "Pantalon lin olive", detail: "✅ ACQUIS (Father & Sons, coupe à passants). Couleur signature en bas, version lin. Dans tes pièces (pn8).", price: "700-1100 MOP", priority: 'later', cat: 'pantalon', tag: 'ACQUIS', purchased: true },
-  { id: 'b18', emoji: '✂️', name: "Retouche L32 chinos", detail: "Vérifier s'ils sont trop courts pour 1m87. Tailleur à Macau, décision no-break ou léger break selon le style.", price: "~100 MOP/pièce", priority: 'soon', cat: 'pantalon', tag: 'AJUSTEMENT', purchased: false },
-  { id: 'b39', emoji: '🫒', name: "Chino olive Lacoste", detail: "✅ ACQUIS. Couleur signature désormais couverte en bas. Déjà dans tes pièces.", price: "600-900 MOP", priority: 'later', cat: 'pantalon', tag: 'ACQUIS', purchased: true },
-
-  // ===================== SHORTS =====================
-  { id: 'b19', emoji: '🩳', name: "Short lin olive/kaki Brooks Brothers", detail: "✅ ACQUIS. Couleur signature désormais couverte en short (coupe chino, front-tuck possible). Dans tes pièces.", price: "~700 MOP", priority: 'soon', cat: 'short', tag: 'ACQUIS', purchased: true },
-  { id: 'b20', emoji: '🩳', name: "Short détente terracotta Brooks Brothers", detail: "✅ ACQUIS (le foncé/rouille, bon choix). Détente cordon, accent chaud farniente — haut neutre dessus. Dans tes pièces.", price: "~700 MOP", priority: 'soon', cat: 'short', tag: 'ACQUIS', purchased: true },
-  { id: 'b21', emoji: '🩳', name: "Short lin sable ou tabac", detail: "Neutre chaud manquant en short (tu auras marine, crème, olive, terracotta). Polo RL / Massimo Dutti.", price: "400-700 MOP", priority: 'later', cat: 'short', tag: 'COMPLÉTER PALETTE', purchased: false },
-  { id: 'b22', emoji: '🏊', name: "Short de bain uni stylé", detail: "Macau/plage : un bain net uni (marine/olive/tabac), pas le board short criard. Orlebar Brown (premium) / Massimo Dutti.", price: "400-1500 MOP", priority: 'soon', cat: 'short', tag: 'NOUVELLE PIÈCE', purchased: false },
-
-  // ===================== CHAUSSURES =====================
-  { id: 'b23', emoji: '👟', name: "Veja V-10 blanc cassé / écru", detail: "3e paire quotidienne, alternative aux Lacoste : semelle gomme couleur sable plus chaude qui matche ta palette. Modèle Extra White / Sable.", price: "~1500 MOP", priority: 'soon', cat: 'chaussure', tag: 'CHAUSSURES', purchased: false },
-  { id: 'b24', emoji: '🌴', name: "Espadrilles toile écru ou rayée", detail: "Été méditerranéen pur, semelle corde. Toile écru ou rayée bleu/blanc. Polo Cevio / Castañer.", price: "600-1500 MOP", priority: 'later', cat: 'chaussure', tag: 'CHAUSSURES', purchased: false },
-  { id: 'b25', emoji: '🥿', name: "Sandales / mules cuir tabac", detail: "Été chaud Macau : penny mule ou Birkenstock Boston en cuir tabac. Massimo Dutti / Birkenstock.", price: "1000-1800 MOP", priority: 'later', cat: 'chaussure', tag: 'CHAUSSURES', purchased: false },
-  { id: 'b26', emoji: '👞', name: "Mocassins cuir lisse cognac", detail: "Version plus formelle que les Ferragamo daim, pour les niveaux 3-4. Goodyear welted : Crockett & Jones Sydney ou Edward Green Piccadilly.", price: "5000-12000 MOP", priority: 'later', cat: 'chaussure', tag: 'CHAUSSURES', purchased: false },
-  { id: 'b27', emoji: '👞', name: "Carmina GENOVA daim brun chocolat", detail: "2e paire daim, brun chocolat foncé en complément des Ferragamo chestnut. Goodyear welted, ashoemaker.com (livraison Macau).", price: "~4200 MOP", priority: 'later', cat: 'chaussure', tag: 'CHAUSSURES', purchased: false },
-  { id: 'b28', emoji: '🌲', name: "Embauchoirs cèdre", detail: "Pour les Ferragamo — indispensable en climat humide (absorbe l'humidité, garde la forme). IKEA Nova Mall (~150) ou Saphir premium (400-600).", price: "150-600 MOP", priority: 'urgent', cat: 'chaussure', tag: 'SOIN CHAUSSURES', purchased: false },
-  { id: 'b29', emoji: '💧', name: "Spray imperméabilisant daim", detail: "Saphir Médaille d'Or — à appliquer avant le 1er port intensif des Ferragamo. Essentiel Macau humide.", price: "~180 MOP", priority: 'urgent', cat: 'chaussure', tag: 'SOIN CHAUSSURES', purchased: false },
-
-  // ===================== ACCESSOIRES =====================
-  { id: 'b30', emoji: '🕶️', name: "Lunettes Persol écaille (Havana)", detail: "✅ ACQUIS. Persol 714 pliable, écaille Havana, verres foncés — 2e paire écaille, complète les Ray-Ban dorées. Dans tes pièces (a11).", price: "1200-3500 MOP", priority: 'later', cat: 'accessoire', tag: 'ACQUIS', purchased: true },
-  { id: 'b31', emoji: '⌚', name: "Bracelet cuir tabac/cognac Longines", detail: "Active le bracelet \"tabac\" des tenues (sinon NATO kaki par défaut). Tabac/cognac pour la palette chaude. Hirsch ou Camille Fournet — vérifier la corne (~19-20mm).", price: "650-2000 MOP", priority: 'soon', cat: 'accessoire', tag: 'STYLE', purchased: false },
-  { id: 'b32', emoji: '🎩', name: "Chapeau Panama (Antibes)", detail: "✅ ACQUIS (Courtois Paris, modèle Antibes). Fedora paille naturelle, bandeau gros-grain tabac, bord large. Dans tes pièces (a12).", price: "700-4000 MOP", priority: 'later', cat: 'accessoire', tag: 'ACQUIS', purchased: true },
-  { id: 'b33', emoji: '🧦', name: "Chaussettes invisibles x6", detail: "Pour les Ferragamo (jamais pieds nus dans le daim). Uniqlo Very Short Socks ou Muji Foot Cover, couleur peau ou noir.", price: "30-50 MOP", priority: 'urgent', cat: 'accessoire', tag: 'SOIN', purchased: false },
-  { id: 'b34', emoji: '🧣', name: "Pochette de costume lin", detail: "Pocket square lin écru ou tabac à glisser dans la veste — le détail old money ultime niveau 3-4. Drake's ou Polo RL.", price: "300-800 MOP", priority: 'later', cat: 'accessoire', tag: 'ACCESSOIRE', purchased: false },
-  { id: 'b35', emoji: '👛', name: "Portefeuille cuir cognac", detail: "Matche la ceinture cognac + la pochette Coach + les Ferragamo. Bifold compact. Polo RL ou Bellroy en tan.", price: "500-1500 MOP", priority: 'later', cat: 'accessoire', tag: 'ACCESSOIRE', purchased: false },
-  { id: 'b36', emoji: '🪢', name: "Ceinture tressée cuir tabac", detail: "Alternative décontractée/été à la ceinture cognac lisse (s'ajuste à tous les trous). Anderson's ou Massimo Dutti.", price: "400-1200 MOP", priority: 'later', cat: 'accessoire', tag: 'COMPLÉTER', purchased: false },
-  { id: 'b37', emoji: '🧣', name: "Écharpe écru / blanc cassé", detail: "✅ ACQUIS (Polo RL, gaze froissée à franges). Variante claire qui va sur tout — désormais dans tes pièces et tes tenues.", price: "400-1500 MOP", priority: 'later', cat: 'accessoire', tag: 'ACQUIS', purchased: true },
-
-  // ===================== HYGIÈNE / GROOMING =====================
-  { id: 'b38', emoji: '💈', name: "Coupe cheveux crop texturé", detail: "Chez un bon barbier (The Mens Tonic à Macau, ou Sham Shui Po HK). Crop court texturé qui assume la racine en recul — vibe Roman Holiday moderne.", price: "200-500 MOP", priority: 'urgent', cat: 'hygiene', tag: 'GROOMING', purchased: false }
-];
+const DEFAULT_WISHLIST = [];
 
 // ===== SKINCARE & HYGIÈNE =====
-const DEFAULT_SKINCARE = [
-  // ===== EN STOCK : produits actuels (purchased=true par défaut) =====
-  // -- Skincare visage
-  { id: 'sk1', emoji: '🧴', name: 'Avène Tolérance Lotion nettoyante gélifiée', detail: 'Nettoyant visage doux pour peaux sensibles réactives. Matin + soir. Sans rinçage possible.', brand: 'Avène', category: 'visage-nettoyant', price: '~120 MOP', tag: 'EN STOCK', purchased: true },
-  { id: 'sk2', emoji: '💧', name: 'La Roche-Posay Toleriane Dermallergo Sérum', detail: 'Sérum apaisant pour peau sensible. Avant la crème hydratante. Matin + soir.', brand: 'La Roche-Posay', category: 'visage-serum', price: '~290 MOP', tag: 'EN STOCK', purchased: true },
-  { id: 'sk3', emoji: '🥥', name: 'Avène Tolerance Hydra-10 crème hydratante', detail: 'Crème hydratante quotidienne peaux sensibles sèches. Le jour, plus légère.', brand: 'Avène', category: 'visage-creme', price: '~180 MOP', tag: 'EN STOCK', purchased: true },
-  { id: 'sk4', emoji: '🌿', name: 'Avène Hydrance Riche crème', detail: 'Crème hydratante plus riche pour peaux sèches à très sèches. Le soir ou hiver.', brand: 'Avène', category: 'visage-creme', price: '~180 MOP', tag: 'EN STOCK', purchased: true },
-  { id: 'sk5', emoji: '🩹', name: 'Avène Cicalfate+ crème réparatrice', detail: 'Réparatrice protectrice pour zones irritées (après rasage, gerçures, brûlures légères). À utiliser localement.', brand: 'Avène', category: 'visage-soin', price: '~150 MOP', tag: 'EN STOCK', purchased: true },
-  // -- Corps & hygiène
-  { id: 'sk6', emoji: '🧴', name: 'Nivea Men Deep Darkwood déo 72h', detail: 'Déodorant anti-perspirant longue durée notes boisées. Compatible avec parfums chauds.', brand: 'Nivea Men', category: 'corps-deo', price: '~50 MOP', tag: 'EN STOCK', purchased: true },
-  { id: 'sk7', emoji: '🧴', name: 'Dove Men+Care Invisible Dry 48h', detail: 'Déodorant secondaire / backup. Anti-traces pour chemises claires.', brand: 'Dove Men+Care', category: 'corps-deo', price: '~40 MOP', tag: 'EN STOCK', purchased: true },
-  // -- Cheveux
-  { id: 'sk8', emoji: '🧴', name: 'KetoShine shampoo (ketoconazole)', detail: 'Shampoo anti-pelliculaire avec ketoconazole 2%. À utiliser 2x/semaine en alternance avec shampoo doux.', brand: 'Stiefel', category: 'cheveux-shampoo', price: '~120 MOP', tag: 'EN STOCK', purchased: true },
-  // -- Dentaire
-  { id: 'sk9', emoji: '🦷', name: 'Sensodyne Repair & Protect', detail: 'Dentifrice pour dents sensibles. Matin + soir.', brand: 'Sensodyne', category: 'dentaire', price: '~70 MOP', tag: 'EN STOCK', purchased: true },
-  // -- Parfum
-  { id: 'sk10', emoji: '🌿', name: 'Terre d\'Hermès EDT', detail: 'Parfum signature. Notes vetiver/orange amère/silex parfaites pour sous-ton chaud. À garder, pièce de fond stylée.', brand: 'Hermès', category: 'parfum', price: '~900 MOP', tag: 'EN STOCK', purchased: true },
-
-  // ===== À ACHETER : nouveautés clope + hygiène moderne =====
-  { id: 'sk11', emoji: '🧼', name: 'Aesop Resurrection Rinse-Free Hand Wash 50ml', detail: 'Gel hydroalcoolique parfumé mandarine/lavande/romarin. TOP pour après clope. Hydratant, format poche. Aesop Galaxy/Sands Cotai.', brand: 'Aesop', category: 'mains', price: '~280 MOP', tag: 'À ACHETER', purchased: false },
-  { id: 'sk12', emoji: '🍬', name: 'CB12 pastilles ou spray', detail: 'NEUTRALISE l\'haleine clope (pas de masquage menthe). Zinc + chlorhexidine bloquent les composés sulfureux. Watsons / Mannings Macau.', brand: 'CB12', category: 'haleine', price: '~180 MOP', tag: 'À ACHETER', purchased: false },
-  { id: 'sk13', emoji: '🌊', name: 'CB12 bain de bouche sans alcool', detail: 'Pour routine quotidienne + après clope. PAS Listerine (alcool fixe l\'odeur). CB12 ou TheraBreath. Watsons.', brand: 'CB12 / TheraBreath', category: 'haleine', price: '~150 MOP', tag: 'À ACHETER', purchased: false },
-  { id: 'sk14', emoji: '🍂', name: 'Mentos Cinnamon ou chewing-gum cannelle', detail: 'La cannelle ne clashe JAMAIS avec tabac (contrairement menthe). Antibactérien naturel. 7-Eleven / supermarchés.', brand: 'Mentos', category: 'haleine', price: '~30 MOP', tag: 'À ACHETER', purchased: false },
-  { id: 'sk15', emoji: '☀️', name: 'Crème solaire visage SPF 50 La Roche-Posay Anthelios', detail: 'Indispensable Macau (UV +++) pour ta peau claire. Texture fluide sans effet blanc. Compatible peau sensible. Watsons.', brand: 'La Roche-Posay', category: 'visage-soin', price: '~250 MOP', tag: 'À ACHETER', purchased: false },
-  { id: 'sk16', emoji: '🪒', name: 'Mousse à raser ou huile à raser premium', detail: 'Pour ta barbe entretenue. Mühle, Truefitt & Hill (premium) ou Bulldog Skincare (accessible). Avène Cicalfate après si irritation.', brand: 'Mühle / Truefitt', category: 'barbe', price: '~200 MOP', tag: 'À ACHETER', purchased: false },
-  { id: 'sk17', emoji: '💧', name: 'Huile barbe légère', detail: 'Pour entretenir ta barbe cuivrée, éviter qu\'elle pique. Notes bois ou agrumes. Beardbrand, L\'Occitane homme ou Aesop.', brand: 'Aesop / Beardbrand', category: 'barbe', price: '~300 MOP', tag: 'À ACHETER', purchased: false },
-  { id: 'sk18', emoji: '✂️', name: 'Brosse barbe + petit ciseau barbier', detail: 'Pour discipliner les poils + nettoyer ligne cou et pommettes (5 min miroir). Mühle ou basique pharmacie.', brand: '—', category: 'barbe', price: '~200 MOP', tag: 'À ACHETER', purchased: false }
-];
+const DEFAULT_SKINCARE = [];
 
 const PALETTE = {
   hot: [
@@ -2619,50 +2178,51 @@ function renderWardrobe() {
 }
 
 function renderPalette() {
-  return `
-    <h2 class="section-title">Palette · matières</h2>
-    <p class="section-subtitle">ta signature chromatique</p>
+  const p = userPalette;
+  let html = `<h2 class="section-title">Ma palette</h2>
+    <p class="section-subtitle">Tes familles de couleurs. Claude les respecte pour composer et corriger tes tenues.</p>`;
 
-    <div class="palette-section">
-      <div class="palette-header">Neutres chauds · base</div>
-      <div class="palette-row">
-        ${PALETTE.hot.map(c => `<div class="color-chip" style="background:${c.color}"><span>${c.name}</span></div>`).join('')}
+  p.groups.forEach((g, gi) => {
+    html += `<div class="pal-group">
+      <div class="pal-group-head">
+        <input class="pal-label" value="${escAttr(g.label)}" onchange="palSetLabel(${gi}, this.value)">
+        <button class="pal-x" onclick="palDelGroup(${gi})" title="Supprimer la famille">✕</button>
       </div>
-    </div>
+      <div class="pal-chips">`;
+    g.colors.forEach((c, ci) => {
+      html += `<div class="pal-chip">
+        <input type="color" value="${c.hex}" onchange="palSetHex(${gi},${ci},this.value)">
+        <input class="pal-cname" value="${escAttr(c.name)}" onchange="palSetName(${gi},${ci},this.value)" placeholder="nom">
+        <button class="pal-chipx" onclick="palDelColor(${gi},${ci})">✕</button>
+      </div>`;
+    });
+    html += `<button class="pal-add" onclick="palAddColor(${gi})">+ couleur</button>`;
+    html += `</div></div>`;
+  });
 
-    <div class="palette-section" style="margin-top:32px">
-      <div class="palette-header">Complémentaires</div>
-      <div class="palette-row">
-        ${PALETTE.complement.map(c => `<div class="color-chip" style="background:${c.color}"><span>${c.name}</span></div>`).join('')}
-      </div>
-    </div>
+  html += `<button class="data-btn" onclick="palAddGroup()">+ Ajouter une famille de couleurs</button>`;
+  html += `<button class="data-btn" onclick="loadExamplePalette()">Charger l'exemple (palette old money)</button>`;
+  return html;
+}
 
-    <div class="palette-section" style="margin-top:32px">
-      <div class="palette-header">Accents · parcimonie</div>
-      <div class="palette-row" style="grid-template-columns:repeat(5,1fr)">
-        ${PALETTE.accents.map(c => `<div class="color-chip" style="background:${c.color}"><span>${c.name}</span></div>`).join('')}
-      </div>
-    </div>
+// -------- Editeur prompt IA --------
+function renderStyle() {
+  let html = `<h2 class="section-title">Prompt de style</h2>
+    <p class="section-subtitle">Décris ton esthétique, tes règles de port, ton ton. C'est ce que Claude suit pour toi. Ta palette (onglet Palette) y est ajoutée automatiquement.</p>`;
 
-    <div class="palette-section" style="margin-top:32px">
-      <div class="palette-header" style="color: var(--alert)">À éviter</div>
-      <div class="palette-row">
-        ${PALETTE.avoid.map(c => `<div class="color-chip" style="background:${c.color}"><span>${c.name}</span></div>`).join('')}
-      </div>
-    </div>
+  html += `<div class="form-group">
+    <label class="form-label">Ton esthétique et tes règles</label>
+    <textarea class="form-input" id="style-text" style="min-height:280px;line-height:1.5"
+      oninput="stylePromptDirty=true"
+      placeholder="Ex : Chic décontracté, old money méditerranéen. Chaud près du visage en priorité. Un seul accent par tenue. Manches de chemise en rouleau italien sous le coude...">${escHtml(userStylePrompt)}</textarea>
+  </div>`;
 
-    <div class="palette-section" style="margin-top:40px">
-      <div class="palette-header">Matières privilégiées</div>
-      <div class="matter-list">
-        ${MATTERS.map(m => `
-          <div class="matter-card">
-            <div class="matter-name">${m.name}</div>
-            <div class="matter-desc">${m.desc}</div>
-          </div>
-        `).join('')}
-      </div>
-    </div>
-  `;
+  html += `<button class="data-btn" onclick="saveStylePrompt()">Enregistrer ma prompt</button>`;
+  html += `<button class="data-btn" onclick="loadExamplePrompt()">Charger l'exemple (style old money)</button>`;
+  html += `<p style="font-size:11px;color:var(--ink-faded);text-align:center;margin-top:8px">
+    Cette prompt + ta palette partent avec chaque appel IA (analyse, génération, correction).
+  </p>`;
+  return html;
 }
 
 let selectedLevels = [];
@@ -3716,6 +3276,7 @@ async function exportData() {
     app: 'garde-robe',
     version: APP_VERSION,
     exportedAt: new Date().toISOString(),
+    profile, userStylePrompt, userPalette, generatedOutfits,
     wardrobe, wishlist, skincare, packed, wearLog, photos
   };
   const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
@@ -3733,6 +3294,10 @@ async function importData(input) {
   try {
     const txt = await file.text();
     const d = JSON.parse(txt);
+    if (d.profile) { profile = d.profile; await saveProfile(); }
+    if (typeof d.userStylePrompt === 'string') { userStylePrompt = d.userStylePrompt; await saveUserStyle(); }
+    if (d.userPalette) { userPalette = d.userPalette; await saveUserPalette(); }
+    if (d.generatedOutfits) { generatedOutfits = d.generatedOutfits; await saveGenerated(); rebuildCatalog(); }
     if (d.wardrobe) { wardrobe = d.wardrobe; await saveWardrobe(); }
     if (d.wishlist) { wishlist = d.wishlist; await saveWishlist(); }
     if (d.skincare) { skincare = d.skincare; await saveSkincare(); }
@@ -3743,6 +3308,7 @@ async function importData(input) {
       photoCache = await loadAllPhotos();
     }
     alert('Sauvegarde importée ✓');
+    updateHeader();
     render();
   } catch (e) {
     alert("Échec de l'import : fichier illisible.");
@@ -3796,6 +3362,10 @@ function render() {
       content.innerHTML = renderPalette();
       document.getElementById('fab').style.display = 'none';
       break;
+    case 'style':
+      content.innerHTML = renderStyle();
+      document.getElementById('fab').style.display = 'none';
+      break;
     case 'outfits':
       content.innerHTML = renderOutfits();
       document.getElementById('fab').style.display = 'none';
@@ -3832,7 +3402,11 @@ async function init() {
   await loadWearLog();
   await loadGenerated();
   await loadPending();
+  await loadProfile();
+  await loadUserStyle();
+  await loadUserPalette();
   photoCache = await loadAllPhotos();
+  updateHeader();
 
   const today = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
   document.getElementById('todayDate').textContent = today;
@@ -3854,6 +3428,8 @@ async function init() {
   });
 
   render();
+
+  if (!profile) openProfile();   // premier lancement -> creation de profil
 }
 
 async function loadWearLog() {
