@@ -2110,6 +2110,19 @@ function renderWardrobe() {
   const filtered = currentFilter === 'all' ? wardrobe : wardrobe.filter(i => i.category === currentFilter);
   const needWashCount = wardrobe.filter(needsWash).length;
 
+  if (wardrobe.length === 0) {
+    return `
+    <h2 class="section-title">Mes pièces</h2>
+    <div class="ai-box" style="text-align:center">
+      <p style="font-size:15px;color:var(--ink);margin-bottom:10px">Ta garde-robe est vide.</p>
+      <p style="font-size:13px;color:var(--ink-soft);margin-bottom:18px;line-height:1.6">
+        1. Passe par <b>Palette</b> et <b>Prompt</b> pour définir ton style.<br>
+        2. Touche le <b>+</b> en bas pour ajouter ta première pièce par photo.
+      </p>
+      <button class="data-btn" onclick="openAddItem()">📷 Ajouter une pièce</button>
+    </div>`;
+  }
+
   return `
     <h2 class="section-title">Mes pièces</h2>
     <p class="section-subtitle">${wardrobe.length} pièces · clic pour détails</p>
@@ -3407,9 +3420,6 @@ async function init() {
   await loadUserPalette();
   photoCache = await loadAllPhotos();
   updateHeader();
-
-  const today = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
-  document.getElementById('todayDate').textContent = today;
 
   document.querySelectorAll('.nav-item').forEach(btn => {
     btn.addEventListener('click', () => {
