@@ -641,6 +641,18 @@
   .danger-btn { color: var(--alert) !important; border-color: var(--alert) !important; }
   .pal-fam { margin-bottom: 14px; }
   .pal-fam-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.pal-sec { margin-bottom: 16px; }
+  .pal-sec-h { font-size: 14px; font-weight: 700; color: var(--ink); margin-bottom: 10px; display: flex; align-items: baseline; gap: 8px; }
+  .pal-sec-h span { font-size: 11px; font-weight: 400; color: var(--ink-faded); font-style: italic; }
+  .pal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .pal-card { background: var(--bg); border: 1px solid var(--line-soft); border-radius: 10px; padding: 10px; }
+  .pal-card-name { font-size: 12px; font-weight: 600; color: var(--ink); margin-bottom: 6px; }
+  .pal-ramp { display: flex; height: 26px; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); }
+  .pal-chip2 { flex: 1; position: relative; }
+  .pal-chip2.sig::after { content: ''; position: absolute; inset: 0; box-shadow: inset 0 0 0 2px rgba(255,255,255,.6), inset 0 0 0 3px rgba(0,0,0,.25); }
+  .pal-avoid { display: flex; flex-wrap: wrap; gap: 8px 14px; }
+  .pal-av { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-soft); }
+  .pal-av-dot { width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--line); display: inline-block; position: relative; }
   .pal-band { height: 32px; border-radius: 8px; border: 1px solid var(--line); margin-bottom: 6px; }
   .pal-fam-label { font-size: 13px; font-weight: 600; color: var(--ink); margin-bottom: 6px; }
   .pal-stops { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
@@ -1679,12 +1691,28 @@ function buildStylePrompt() {
     if (bits.length) out += 'PROFIL\n' + bits.join('\n') + '\n\n';
   }
   out += (userStylePrompt || '').trim();
-  const fams = (userPalette.families || []).filter(f => (f.stops||[]).length);
-  if (fams.length) {
-    out += '\n\nPALETTE (familles de couleurs a respecter, donnees en degrades) :';
-    fams.forEach(f => { out += `\n- ${f.label} : ${f.stops.join(', ')}`; });
+  const groups = paletteGroups();
+  if (groups.length) {
+    out += '\n\nPALETTE (couleurs classees par type, chacune avec ses nuances du clair au fonce) :';
+    groups.forEach(g => {
+      out += `\n${g.group}${g.tag ? ' ('+g.tag+')' : ''} :`;
+      (g.colors||[]).forEach(c => { out += `\n  - ${c.name} : ${(c.stops||[]).join(', ')}`; });
+    });
+  }
+  const avoid = (userPalette.avoid || []);
+  if (avoid.length) {
+    out += '\n\nA EVITER pres du visage : ' + avoid.map(a => `${a.name} (${a.hex})`).join(', ');
   }
   return out.trim() || "Tu es un coach vestimentaire. Compose des tenues coherentes et flatteuses.";
+}
+
+// Unifie l'acces aux groupes quel que soit le format (riche `groups` ou ancien `families`)
+function paletteGroups() {
+  if (Array.isArray(userPalette.groups) && userPalette.groups.length) return userPalette.groups;
+  if (Array.isArray(userPalette.families) && userPalette.families.length) {
+    return [{ group: 'Mes couleurs', tag: '', colors: userPalette.families.map(f => ({ name: f.label, stops: f.stops || [] })) }];
+  }
+  return [];
 }
 
 // CSS linear-gradient a partir des stops
@@ -1694,14 +1722,18 @@ function paletteGradient(stops) {
   return 'linear-gradient(90deg, ' + stops.join(', ') + ')';
 }
 
-// Migration : ancienne structure {groups:[{label,colors:[{name,hex}]}]} -> {families:[{label,stops:[]}]}
+// Migration : normalise les couleurs (hex -> stops) sans casser le format riche
 function migratePalette() {
-  if (userPalette && userPalette.groups && !userPalette.families) {
-    userPalette = { families: userPalette.groups.map(g => ({
-      label: g.label, stops: (g.colors||[]).map(c => c.hex)
-    })) };
+  if (!userPalette) userPalette = {};
+  if (Array.isArray(userPalette.groups)) {
+    userPalette.groups.forEach(g => {
+      (g.colors||[]).forEach(c => {
+        if (!c.stops && c.hex) c.stops = Array.isArray(c.hex) ? c.hex : [c.hex];
+        if (!c.stops) c.stops = [];
+      });
+    });
   }
-  if (!userPalette.families) userPalette.families = [];
+  if (!userPalette.groups && !userPalette.families) userPalette.families = [];
 }
 
 async function saveProfile(){ await window.storage.set('profile', JSON.stringify(profile)); }
@@ -1775,7 +1807,7 @@ function palAddStopFromPhoto(f){
   });
 }
 
-// Génère TOUTE la palette (plusieurs familles + dégradés) depuis une description, via Claude
+// Génère TOUTE la palette (couleurs nommées + nuances, classées par type) depuis une description
 async function palGeneratePalette(){
   const el = document.getElementById('pal-prompt');
   const desc = (el ? el.value : '').trim();
@@ -1787,14 +1819,24 @@ async function palGeneratePalette(){
   try {
     const raw = await callClaude('palette', { text: 'Palette voulue : ' + desc });
     const d = parseJSONLoose(raw);
-    if (!d || !Array.isArray(d.families) || !d.families.length) throw new Error('Réponse illisible');
-    // nettoie / valide
-    const fams = d.families
-      .filter(f => f && Array.isArray(f.stops) && f.stops.length)
-      .map(f => ({ label: f.label || 'Famille', stops: f.stops.filter(h => /^#[0-9a-fA-F]{6}$/.test(h)) }))
-      .filter(f => f.stops.length);
-    if (!fams.length) throw new Error('Aucune couleur valide');
-    userPalette = { families: fams };
+    if (!d || !Array.isArray(d.groups)) throw new Error('Réponse illisible');
+    const hexOk = h => /^#[0-9a-fA-F]{6}$/.test(h);
+    const groups = d.groups
+      .filter(g => g && Array.isArray(g.colors))
+      .map(g => ({
+        group: g.group || 'Couleurs',
+        tag: g.tag || '',
+        colors: g.colors
+          .filter(c => c && Array.isArray(c.stops))
+          .map(c => ({ name: c.name || 'Couleur', stops: c.stops.filter(hexOk) }))
+          .filter(c => c.stops.length)
+      }))
+      .filter(g => g.colors.length);
+    if (!groups.length) throw new Error('Aucune couleur valide');
+    const avoid = Array.isArray(d.avoid)
+      ? d.avoid.filter(a => a && hexOk(a.hex)).map(a => ({ name: a.name || 'À éviter', hex: a.hex }))
+      : [];
+    userPalette = { groups, avoid };
     await saveUserPalette();
     render();
   } catch(e) {
@@ -1805,7 +1847,7 @@ async function palGeneratePalette(){
 
 async function wipePalette(){
   if(!confirm('Vider toute ta palette ?'))return;
-  userPalette = { families: [] };
+  userPalette = { groups: [], avoid: [] };
   await saveUserPalette();
   render();
 }
@@ -1816,8 +1858,8 @@ function checkColorFromPhoto(){
     const res = classifyColor(hex);
     const box = document.getElementById('pal-check-result');
     if (!box) return;
-    if (!res) { box.innerHTML = `<div class="pal-verdict">Aucune famille definie.</div>`; return; }
-    const cls = /evit|eviter|\u00e0 eviter/i.test(res.label) ? 'v-no' : 'v-ok';
+    if (!res) { box.innerHTML = `<div class="pal-verdict">Aucune palette definie.</div>`; return; }
+    const cls = res.avoid ? 'v-no' : 'v-ok';
     box.innerHTML = `<div class="pal-verdict">
       <span class="pal-swatch" style="background:${hex}"></span>
       <span class="verdict ${cls}">${res.label}</span>
@@ -1886,11 +1928,17 @@ function hexToRgb(h){ return [parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16
 function colorDist(a,b){ const x=hexToRgb(a),y=hexToRgb(b); return Math.sqrt((x[0]-y[0])**2+(x[1]-y[1])**2+(x[2]-y[2])**2); }
 function classifyColor(hex){
   let best=null;
-  (userPalette.families||[]).forEach(f=>{
-    (f.stops||[]).forEach(st=>{
-      const d=colorDist(hex,st);
-      if(!best||d<best.dist) best={label:f.label,dist:d,stop:st};
+  paletteGroups().forEach(g=>{
+    (g.colors||[]).forEach(c=>{
+      (c.stops||[]).forEach(st=>{
+        const d=colorDist(hex,st);
+        if(!best||d<best.dist) best={label:`${c.name} · ${g.group}`, group:g.group, dist:d, stop:st, avoid:false};
+      });
     });
+  });
+  (userPalette.avoid||[]).forEach(a=>{
+    const d=colorDist(hex,a.hex);
+    if(!best||d<best.dist) best={label:`À éviter : ${a.name}`, group:'À éviter', dist:d, stop:a.hex, avoid:true};
   });
   return best;
 }
@@ -1956,7 +2004,7 @@ async function loadExamplePrompt(){
 }
 
 // ============ VERSION APP (PWA) ============
-const APP_VERSION = '1.8';
+const APP_VERSION = '2.0';
 
 // ============ PHOTOS : IndexedDB ============
 // localStorage sature vite avec des images -> IndexedDB pour les photos de tenues.
@@ -2547,34 +2595,52 @@ function renderProfil() {
     <button class="data-btn" onclick="saveStylePrompt()">Enregistrer ma prompt</button>
   </div>`;
 
-  // --- Palette (dégradés, pilotée par prompt) ---
+  // --- Palette (cartes + rampes, style « ma palette ») ---
   html += `<div class="prof-card">
     <div class="prof-card-title">Ma palette</div>
-    <p class="prof-hint">Tes familles de couleurs, chacune en dégradé. Claude les respecte pour composer et corriger tes tenues.</p>`;
+    <p class="prof-hint">Tes couleurs classées par type, chacune avec ses nuances. Claude les respecte pour composer et corriger tes tenues.</p>`;
 
-  if (!(userPalette.families || []).length) {
+  const groups = paletteGroups();   // format riche unifié
+  if (!groups.length) {
     html += `<p class="prof-hint" style="text-align:center;font-style:italic">Pas encore de palette. Décris-la ci-dessous et Claude la génère.</p>`;
   }
-  (userPalette.families || []).forEach((f) => {
-    const grad = paletteGradient(f.stops);
-    html += `<div class="pal-fam">
-      <div class="pal-fam-label">${escHtml(f.label)}</div>
-      <div class="pal-band" style="background:${grad}"></div>
-    </div>`;
+  groups.forEach(g => {
+    html += `<div class="pal-sec">
+      <div class="pal-sec-h">${escHtml(g.group)}${g.tag ? `<span>${escHtml(g.tag)}</span>` : ''}</div>
+      <div class="pal-grid">`;
+    (g.colors || []).forEach(c => {
+      const stops = c.stops || [];
+      const sig = Math.min(2, stops.length - 1);
+      const ramp = stops.map((x,i) => `<span class="pal-chip2 ${i===sig?'sig':''}" style="background:${x}" title="${x}"></span>`).join('');
+      html += `<div class="pal-card">
+        <div class="pal-card-name">${escHtml(c.name)}</div>
+        <div class="pal-ramp">${ramp}</div>
+      </div>`;
+    });
+    html += `</div></div>`;
   });
+
+  // À éviter (près du visage)
+  const avoid = (userPalette.avoid || []);
+  if (avoid.length) {
+    html += `<div class="pal-sec">
+      <div class="pal-sec-h">À éviter<span>près du visage</span></div>
+      <div class="pal-avoid">` +
+      avoid.map(a => `<div class="pal-av"><span class="pal-av-dot" style="background:${a.hex}"></span>${escHtml(a.name)}</div>`).join('') +
+      `</div></div>`;
+  }
 
   // Générer TOUTE la palette depuis une prompt (Claude)
   html += `<div class="pal-gen">
       <div class="prof-card-title" style="font-size:13px">Générer ma palette avec Claude</div>
-      <p class="prof-hint">Décris ta palette (ambiance, couleurs que tu aimes, ce que tu évites). Claude crée toutes les catégories avec leurs dégradés.</p>
+      <p class="prof-hint">Décris ta palette (ambiance, couleurs que tu aimes, ce que tu évites). Claude crée chaque couleur avec ses nuances, classée par type.</p>
       <textarea class="form-input" id="pal-prompt" style="min-height:90px"
-        placeholder="Ex : palette chaude méditerranéenne — neutres sable/tabac/chocolat, des complémentaires olive et marine, un accent terracotta, et j'évite le noir et les gris froids près du visage."></textarea>
+        placeholder="Ex : palette chaude méditerranéenne — neutres sable/tabac/chocolat, complémentaires olive et marine, un accent terracotta, et j'évite le noir et les gris froids près du visage."></textarea>
       <button class="data-btn" id="pal-gen-btn" onclick="palGeneratePalette()">✨ Générer ma palette</button>
       <div id="pal-gen-result"></div>
     </div>`;
 
-  html += `<button class="data-btn" onclick="loadExamplePalette()">Charger l'exemple (old money)</button>`;
-  if ((userPalette.families || []).length) {
+  if (groups.length || avoid.length) {
     html += `<button class="data-btn danger-btn" onclick="wipePalette()">Vider ma palette</button>`;
   }
 
@@ -2602,7 +2668,8 @@ function renderProfil() {
   // --- Données ---
   html += `<div class="prof-card">
     <div class="prof-card-title">Mes données</div>
-    <button class="data-btn" onclick="exportData()">⬇️ Exporter (JSON)</button>
+    <button class="data-btn" onclick="exportData()">⬇️ Exporter tout (JSON)</button>
+    <button class="data-btn" onclick="exportProfile()">👤 Exporter mon profil seul</button>
     <button class="data-btn" onclick="document.getElementById('importFile').click()">⬆️ Importer une sauvegarde</button>
     <input type="file" id="importFile" accept="application/json" style="display:none" onchange="importData(this)">
     <p class="prof-hint" style="text-align:center">Version ${APP_VERSION} · sauvegarde avant de changer de téléphone.</p>
@@ -3665,6 +3732,23 @@ function resetMirror() {
 }
 
 // ============ EXPORT / IMPORT ============
+// Export du profil seul : identité + palette + prompt (sans pièces ni tenues)
+async function exportProfile() {
+  const payload = {
+    app: 'garde-robe',
+    kind: 'profile-only',
+    version: APP_VERSION,
+    exportedAt: new Date().toISOString(),
+    profile, userStylePrompt, userPalette
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'mon-profil-' + ((profile && profile.name) ? profile.name.toLowerCase().replace(/\\s+/g,'-') : 'style') + '.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
 async function exportData() {
   const photos = await loadAllPhotos();
   const payload = {

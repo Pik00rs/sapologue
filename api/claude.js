@@ -81,15 +81,24 @@ N'utilise QUE les id fournis.`
   },
 
   palette: {
-    max_tokens: 900,
-    instructions: `TÂCHE : l'utilisateur décrit sa palette (ambiance, couleurs qu'il aime, ce qu'il évite). Génère une palette structurée complète en 3 à 5 familles — typiquement : neutres chauds (ou froids selon le style), complémentaires, accents, et une famille « à éviter » près du visage. Chaque famille = un dégradé de 4 à 6 couleurs cohérentes, ordonnées du plus clair au plus foncé.
+    max_tokens: 1500,
+    instructions: `TÂCHE : l'utilisateur décrit sa palette (ambiance, couleurs qu'il aime, ce qu'il évite). Génère une palette structurée et riche, en tenant compte de son profil et de son style ci-dessus.
 
-Tiens compte du style et du profil ci-dessus. Réponds UNIQUEMENT en JSON valide, sans préambule ni backticks :
+Organise en 3 familles (ex : « Neutres chauds », « Complémentaires », « Accents »). Chaque famille contient plusieurs COULEURS NOMMÉES (ex : Chocolat, Tabac, Olive, Marine…), et chaque couleur a un dégradé de 5 nuances du plus clair au plus foncé. Ajoute aussi une liste « à éviter près du visage ».
+
+Réponds UNIQUEMENT en JSON valide, sans préambule ni backticks :
 {
-  "families": [
-    { "label": "nom de la famille en français", "stops": ["#rrggbb","#rrggbb","#rrggbb","#rrggbb"] }
+  "groups": [
+    { "group": "Neutres chauds", "tag": "le cœur", "colors": [
+      { "name": "Chocolat", "stops": ["#rrggbb","#rrggbb","#rrggbb","#rrggbb","#rrggbb"] },
+      { "name": "Tabac", "stops": ["#rrggbb","#rrggbb","#rrggbb","#rrggbb","#rrggbb"] }
+    ] }
+  ],
+  "avoid": [
+    { "name": "Noir froid", "hex": "#rrggbb" }
   ]
-}`
+}
+Chaque "stops" a exactement 5 nuances ordonnées clair -> foncé. Reste fidèle aux teintes décrites.`
   }
 };
 
