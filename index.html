@@ -681,6 +681,11 @@
     border-radius: 10px; padding: 12px 14px;
   }
   .gen-count { font-size: 12px; color: var(--ink-soft); }
+.gen-more-btn {
+    width: 100%; margin-top: 8px; padding: 10px;
+    background: var(--accent-soft); color: var(--ink); border: none;
+    border-radius: 100px; font-size: 13px; font-weight: 600; font-family: var(--sans); cursor: pointer;
+  }
   .gen-btn {
     background: var(--ink); color: var(--bg-card); border: none;
     border-radius: 100px; padding: 8px 16px; font-size: 12px; font-weight: 600;
@@ -1378,6 +1383,24 @@ function wardrobePayload() {
 }
 
 // ---- GENERATION COMPLETE (gros appel, rare) ----
+// Signature d'une tenue = ses pièces triées (pour dédup entre lots)
+function outfitSignature(o){
+  return (o.pieces||[]).slice().sort().join('|');
+}
+
+// Estime le nombre de tenues « raisonnablement » composables avec la garde-robe :
+// hauts × bas compatibles × chaussures, borné. Sert d'indicateur de potentiel.
+function estimateOutfitPotential(){
+  const hauts = wardrobe.filter(w => w.category === 'haut');
+  const bas = wardrobe.filter(w => w.category === 'bas');
+  const chauss = wardrobe.filter(w => w.category === 'chaussure');
+  if (!hauts.length || !bas.length) return 0;
+  const shoes = Math.max(1, chauss.length);
+  // combinaisons haut×bas, ×chaussures (plafonné pour rester réaliste : on ne montre pas toutes les permutations d'accessoires)
+  const combos = hauts.length * bas.length * Math.min(shoes, 3);
+  return combos;
+}
+
 async function generateAllOutfits() {
   const payload = wardrobePayload();
   const text = "Voici ma garde-robe complete (JSON). Compose le maximum de tenues excellentes et variees.\n\n" + JSON.stringify(payload);
@@ -1399,6 +1422,37 @@ async function generateAllOutfits() {
   await saveGenerated();
   rebuildCatalog();
   return { kept: kept.length, dropped: dropped.length };
+}
+
+// GÉNÉRER PLUS : ajoute de nouvelles tenues sans répéter celles déjà générées
+async function generateMoreOutfits() {
+  const payload = wardrobePayload();
+  // on envoie à Claude les combinaisons déjà faites (compact : juste les pièces) pour qu'il en propose d'AUTRES
+  const doneCombos = generatedOutfits.map(o => o.pieces);
+  const text = "Voici ma garde-robe complete (JSON) :\n" + JSON.stringify(payload)
+    + "\n\nJ'ai DÉJÀ ces tenues (listes d'id de pièces) — ne les repropose pas, compose des tenues DIFFÉRENTES et nouvelles :\n"
+    + JSON.stringify(doneCombos);
+  const raw = await callClaude('generate', { text });
+  const data = parseJSONLoose(raw);
+  if (!data || !Array.isArray(data.outfits)) {
+    console.warn('Réponse génération:', raw);
+    throw new Error('Réponse illisible. Réessaie.');
+  }
+
+  const existing = new Set(generatedOutfits.map(outfitSignature));
+  let added = 0;
+  data.outfits.forEach((o, i) => {
+    const n = normalizeOutfit(o, generatedOutfits.length + i);
+    if (outfitFaults(n).length) return;
+    const sig = outfitSignature(n);
+    if (existing.has(sig)) return;   // doublon → ignoré
+    existing.add(sig);
+    generatedOutfits.push(n);
+    added++;
+  });
+  await saveGenerated();
+  rebuildCatalog();
+  return { added };
 }
 
 // ---- GENERATION INCREMENTALE (petit appel, a l'ajout de pieces) ----
@@ -2051,7 +2105,7 @@ async function loadExamplePrompt(){
 }
 
 // ============ VERSION APP (PWA) ============
-const APP_VERSION = '2.2';
+const APP_VERSION = '2.4';
 
 // ============ PHOTOS : IndexedDB ============
 // localStorage sature vite avec des images -> IndexedDB pour les photos de tenues.
@@ -2781,7 +2835,7 @@ function outfitCardHTML(o) {
   }).join('');
   let controls = '<div class="opt-row">';
   controls += `<label class="opt-chip"><input type="checkbox" ${op.scarf ? 'checked' : ''} onchange="toggleOpt('${o.id}','scarf',this.checked)"> 🧣 Écharpe</label>`;
-  if (outfitHasShort(o)) controls += `<label class="opt-chip"><input type="checkbox" ${op.short ? 'checked' : ''} onchange="toggleOpt('${o.id}','short',this.checked)"> 🩳 Short</label>`;
+  if (o.shortSwap) controls += `<label class="opt-chip"><input type="checkbox" ${op.short ? 'checked' : ''} onchange="toggleOpt('${o.id}','short',this.checked)"> 🩳 Short</label>`;
   if (hv.ok) controls += `<label class="opt-chip"><input type="checkbox" ${op.hat ? 'checked' : ''} onchange="toggleOpt('${o.id}','hat',this.checked)"> 👒 Panama</label>`;
   controls += `<span class="strap-toggle">⌚ <button class="${op.strap === 'kaki' ? 'on' : ''}" onclick="setStrap('${o.id}','kaki')">NATO</button><button class="${op.strap === 'acier' ? 'on' : ''}" onclick="setStrap('${o.id}','acier')">Acier</button><button class="${op.strap === 'cuir' ? 'on' : ''}" onclick="setStrap('${o.id}','cuir')">Cuir</button></span>`;
   controls += '</div>';
@@ -2841,10 +2895,15 @@ function renderOutfits() {
           <button onclick="runIncrementalGen()">Générer leurs tenues</button>
         </div>`;
       }
+      const potential = estimateOutfitPotential();
+      const remaining = Math.max(0, potential - generatedOutfits.length);
       html += `<div class="gen-row">
-        <span class="gen-count">${generatedOutfits.length} tenue(s) générée(s)</span>
+        <span class="gen-count">${generatedOutfits.length} tenue(s) générée(s)${potential ? ` · ~${remaining} encore possible(s)` : ''}</span>
         <button class="gen-btn" onclick="runFullGen()">${generatedOutfits.length ? 'Tout regénérer' : 'Générer mes tenues'}</button>
       </div>`;
+      if (generatedOutfits.length > 0 && remaining > 0) {
+        html += `<button class="gen-more-btn" onclick="runGenerateMore()">+ Générer plus de tenues</button>`;
+      }
     }
     html += `</div>`;
   }
@@ -3448,6 +3507,21 @@ async function runFullGen() {
   } catch (e) {
     genBusy = false; render();
     alert('Échec de la génération : ' + e.message + '\n\n(Vérifie ANTHROPIC_API_KEY dans Vercel.)');
+  }
+}
+
+// Génère un lot SUPPLÉMENTAIRE (ajoute, sans remplacer)
+async function runGenerateMore() {
+  if (genBusy) return;
+  genBusy = true; genBusyMsg = 'Claude compose de nouvelles tenues… (Opus)'; render();
+  try {
+    const res = await generateMoreOutfits();
+    genBusy = false; render();
+    if (res.added > 0) alert(`✓ ${res.added} nouvelle(s) tenue(s) ajoutée(s).`);
+    else alert("Claude n'a pas trouvé de nouvelle combinaison différente cette fois. Tu as sans doute fait le tour — ajoute des pièces pour en débloquer d'autres.");
+  } catch (e) {
+    genBusy = false; render();
+    alert('Échec : ' + e.message);
   }
 }
 
