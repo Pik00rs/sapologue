@@ -1311,24 +1311,16 @@ function outfitFaults(o) {
   const faults = [];
   const get = id => wardrobe.find(w => w.id === id);
   const pieces = (o.pieces || []).map(get).filter(Boolean);
-  if (pieces.length !== (o.pieces || []).length) faults.push('piece inconnue');
-
+  // On tolère les id inconnus (Claude peut citer un accessoire non catalogué) :
+  // on les ignore au lieu de rejeter toute la tenue. On exige juste un haut + un bas réels.
   const hauts = pieces.filter(p => p.category === 'haut');
   const bas = pieces.find(p => p.category === 'bas');
   if (!hauts.length) faults.push('pas de haut');
   if (!bas) faults.push('pas de bas');
 
-  // la piece au visage = le dernier haut liste (chemise/veste ouverte apres tee)
-  const face = hauts.length ? hauts[hauts.length - 1] : null;
-  const tf = face ? famOf(face) : null;
-  const bf = bas ? famOf(bas) : null;
-
-  // Regles universelles seulement (les regles de couleur dependent de la palette
-  // de chaque utilisateur : elles sont deleguees a Claude via la prompt).
   if (pieces.filter(p => famOf(p) === 'ac').length >= 2) faults.push('deux accents');
   if (pieces.filter(p => p.category === 'chaussure').length > 1) faults.push('deux paires de chaussures');
 
-  // ceinture : seulement si le bas est a passants
   const beltId = wardrobe.find(w => w.type === 'ceinture');
   if (beltId && o.pieces && o.pieces.includes(beltId.id) && bas && !tuckableOf(bas)) faults.push('ceinture sur cordon');
 
@@ -1337,6 +1329,8 @@ function outfitFaults(o) {
 
 // Normalise une tenue Claude -> format interne + id stable
 function normalizeOutfit(o, idx) {
+  // ne garde que les pièces réellement présentes dans la garde-robe
+  const validPieces = (Array.isArray(o.pieces) ? o.pieces : []).filter(id => wardrobe.some(w => w.id === id));
   return {
     id: 'ai-' + Date.now().toString(36) + '-' + idx,
     generated: true,
@@ -1344,8 +1338,8 @@ function normalizeOutfit(o, idx) {
     level: [1,2,3,4].includes(o.level) ? o.level : 1,
     vibe: ['jeune','inter','mur'].includes(o.vibe) ? o.vibe : 'inter',
     description: o.description || '',
-    pieces: Array.isArray(o.pieces) ? o.pieces : [],
-    scarf: o.scarf || null,
+    pieces: validPieces,
+    scarf: (o.scarf && wardrobe.some(w => w.id === o.scarf)) ? o.scarf : null,
     shortSwap: null,
     watch: ['kaki','acier','cuir'].includes(o.watch) ? o.watch : 'kaki',
     hat: o.hat !== false,
@@ -1962,7 +1956,7 @@ async function loadExamplePrompt(){
 }
 
 // ============ VERSION APP (PWA) ============
-const APP_VERSION = '1.7';
+const APP_VERSION = '1.8';
 
 // ============ PHOTOS : IndexedDB ============
 // localStorage sature vite avec des images -> IndexedDB pour les photos de tenues.
@@ -2726,12 +2720,12 @@ function renderOutfits() {
     } else {
       if (pendingPieces.length > 0) {
         html += `<div class="gen-pending">
-          <span>${pendingPieces.length} nouvelle(s) pièce(s) en attente</span>
+          <span>${pendingPieces.length} pièce(s) non traitée(s)</span>
           <button onclick="runIncrementalGen()">Générer leurs tenues</button>
         </div>`;
       }
       html += `<div class="gen-row">
-        <span class="gen-count">${generatedOutfits.length} tenue(s) générée(s) par Claude · ${CURATED_OUTFITS.length} curatées</span>
+        <span class="gen-count">${generatedOutfits.length} tenue(s) générée(s)</span>
         <button class="gen-btn" onclick="runFullGen()">${generatedOutfits.length ? 'Tout regénérer' : 'Générer mes tenues'}</button>
       </div>`;
     }
@@ -3286,7 +3280,7 @@ function addReviewNav(dir){
   renderAddReview();
 }
 
-// Valide toute la file d'un coup
+// Valide toute la file d'un coup — SANS générer les tenues (ça se fait depuis l'onglet Tenues)
 async function commitAddQueue(){
   stashAddReview();
   let added = 0;
@@ -3310,14 +3304,7 @@ async function commitAddQueue(){
   addQueue = []; addIndex = 0;
   closeModal();
   render();
-
-  const pending = pendingPieces.length;
-  if (pending > 0 && confirm(`✓ ${added} pièce(s) ajoutée(s).\\n\\n${pending} pièce(s) en attente. Composer leurs tenues maintenant ?`)) {
-    goTab('outfits');
-    await runIncrementalGen();
-  } else {
-    alert(`✓ ${added} pièce(s) ajoutée(s) à ta garde-robe.`);
-  }
+  alert(`✓ ${added} pièce(s) ajoutée(s).\\n\\nVa dans l'onglet Tenues pour composer les tenues quand tu veux.`);
 }
 
 // Navigue vers un onglet par code (met a jour la nav)

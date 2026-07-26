@@ -16,7 +16,7 @@ const TASKS = {
     instructions: `TÂCHE : analyser la pièce de vêtement sur la photo.
 Réponds UNIQUEMENT en JSON valide, sans préambule ni backticks, selon ce schéma exact :
 {
-  "name": "nom court et descriptif en français, ex: Chemise lin camel",
+  "name": "nom court et simple, SANS la marque, ex: Chemise lin camel, Tee coton écru",
   "type": "un seul parmi: chemise-lin, chemise-coton, tee, polo, maille, chino, pantalon-lin, short, veste-lin, sneakers, mocassins, foulard, ceinture, sacoche, montre, lunettes, chapeau",
   "category": "un seul parmi: haut, bas, surcouche, chaussure, accessoire",
   "color": "#rrggbb (couleur dominante réelle du tissu)",
@@ -67,7 +67,7 @@ Réponds UNIQUEMENT en JSON valide, sans préambule ni backticks. Schéma EXACT 
   "hat": true,
   "tips": { "tuck": "...", "sleeves": "...", "scarf": "...", "note": "le détail qui fait la différence" }
 } ] }
-N'utilise QUE les id fournis. Inclus toujours la montre si présente. Ceinture seulement si le bas a des passants (passants=true).`
+N'utilise QUE les id de pièces réellement fournis dans la garde-robe. N'invente jamais d'id (montre, ceinture, etc.) : si un accessoire n'est pas dans la liste, ne le mets pas dans "pieces". Ceinture seulement si le bas a des passants (passants=true).`
   },
 
   generate_incremental: {
