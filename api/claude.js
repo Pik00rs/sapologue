@@ -6,7 +6,8 @@
 // envoyés dans le champ `stylePrompt`. Le serveur ne fait qu'y ajouter les
 // instructions techniques propres à chaque tâche.
 
-const MODEL = 'claude-sonnet-4-6';
+const MODEL = 'claude-sonnet-4-6';           // par défaut (analyse, miroir, palette)
+const MODEL_GENERATE = 'claude-opus-5';       // génération de tenues (plus fin sur le style + les détails de port)
 
 const FALLBACK_STYLE = `Tu es un coach vestimentaire personnel. Tu composes et juges des tenues coherentes, flatteuses et bien portees. Ton : francais, direct, cash, sans flatterie.`;
 
@@ -52,32 +53,54 @@ Réponds UNIQUEMENT en JSON valide : { "tuck": "...", "sleeves": "...", "scarf":
   },
 
   generate: {
-    max_tokens: 8000,
-    instructions: `TÂCHE : on te donne la garde-robe complète de l'utilisateur (JSON : id, nom, type, couleur, matière, famille, passants). Compose des tenues EXCELLENTES et variées, en respectant SA palette et SON style ci-dessus, et en tenant compte de la couleur ET de la matière ET du contexte.
+    max_tokens: 16000,
+    instructions: `TÂCHE : on te donne la garde-robe complète de l'utilisateur (JSON : id, nom, type, couleur, matière, famille, passants). Compose des tenues EXCELLENTES et variées, en respectant SA palette et SON style ci-dessus, en tenant compte de la couleur, de la matière ET du contexte.
 
-Vise 15 à 30 tenues réparties sur 4 niveaux (1=relax, 2=chic décontracté, 3=soirée, 4=cérémonie) et 3 vibes (jeune, inter, mur). Inclus du layering. Garde descriptions et tips COURTS (une phrase max) pour tenir dans la réponse.
+Vise 15 à 25 tenues réparties sur 4 niveaux (1=relax, 2=chic décontracté, 3=soirée, 4=cérémonie) et 3 vibes (jeune, inter, mur). Inclus du layering.
+
+POINT CLÉ : pour CHAQUE tenue, explique en détail COMMENT LA PORTER. Sois précis et concret, pas générique. Pense à tout :
+- tuck : rentré / demi-tuck / front-tuck / sorti, et pourquoi (respecte : tuck seulement si le bas a des passants, jamais sur cordon)
+- sleeves : retroussage des manches (rouleau italien 2-3 plis sous le coude pour une chemise ; manches de veste poussées/froissées à mi-avant-bras ; tee retroussé 1 pli ; ou telles quelles)
+- hem : bas du pantalon (ourlet net, léger break, ou retroussé/roulé une fois), et longueur idéale
+- buttons : combien de boutons ouverts au col, chemise sous veste ouverte ou fermée
+- scarf : quelle écharpe et comment la draper (ou aucune si ça surcharge)
+- shoes : quelles chaussures + chaussettes (socquettes invisibles dans le daim, etc.)
+- accessories : ceinture (couleur, seulement si passants), montre, chapeau, sacoche (comment porter la sangle)
+- note : le détail final qui fait la différence, le "pourquoi ça marche" côté palette/silhouette
 
 Réponds UNIQUEMENT en JSON valide, sans préambule ni backticks. Schéma EXACT :
 { "outfits": [ {
-  "name": "nom court", "level": 1, "vibe": "jeune",
-  "description": "une phrase courte",
+  "name": "nom court",
+  "level": 1,
+  "vibe": "jeune",
+  "description": "une phrase : l'esprit de la tenue",
   "pieces": ["id1","id2"],
   "scarf": "id du foulard ou null",
   "watch": "kaki | acier | cuir",
   "hat": true,
-  "tips": { "tuck": "court", "sleeves": "court", "scarf": "court", "note": "court" }
+  "tips": {
+    "tuck": "...",
+    "sleeves": "...",
+    "hem": "...",
+    "buttons": "...",
+    "scarf": "...",
+    "shoes": "...",
+    "accessories": "...",
+    "note": "..."
+  }
 } ] }
 N'utilise QUE les id de pièces réellement fournis dans la garde-robe. N'invente jamais d'id (montre, ceinture, etc.). Ceinture seulement si le bas a des passants (passants=true).`
   },
 
   generate_incremental: {
-    max_tokens: 3000,
+    max_tokens: 6000,
     instructions: `TÂCHE : l'utilisateur vient d'ajouter des NOUVELLES pièces. On te donne sa garde-robe complète ET la liste des id des nouvelles pièces. Compose UNIQUEMENT les nouvelles tenues qui utilisent AU MOINS UNE nouvelle pièce, selon sa palette et son style ci-dessus.
 
-Vise 3 à 10 tenues par nouvelle pièce, zéro faute.
+Vise 3 à 8 tenues par nouvelle pièce, variées, zéro faute. Pour CHAQUE tenue, explique en détail comment la porter (tuck, retroussage des manches, ourlet du pantalon, boutons, écharpe et drapé, chaussures + chaussettes, accessoires) — précis et concret.
+
 Réponds UNIQUEMENT en JSON valide, même schéma que la génération complète :
-{ "outfits": [ { "name","level","vibe","description","pieces","scarf","watch","hat","tips":{"tuck","sleeves","scarf","note"} } ] }
-N'utilise QUE les id fournis.`
+{ "outfits": [ { "name","level","vibe","description","pieces","scarf","watch","hat","tips":{"tuck","sleeves","hem","buttons","scarf","shoes","accessories","note"} } ] }
+N'utilise QUE les id fournis. N'invente jamais d'id.`
   },
 
   palette: {
@@ -128,10 +151,12 @@ export default async function handler(req, res) {
     }
     content.push({ type: 'text', text: text || 'Analyse.' });
 
+    const model = (task === 'generate' || task === 'generate_incremental') ? MODEL_GENERATE : MODEL;
+
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: MODEL, max_tokens: cfg.max_tokens, system, messages: [{ role: 'user', content }] })
+      body: JSON.stringify({ model, max_tokens: cfg.max_tokens, system, messages: [{ role: 'user', content }] })
     });
 
     if (!r.ok) {

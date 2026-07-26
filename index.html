@@ -1358,7 +1358,11 @@ function normalizeOutfit(o, idx) {
     tips: {
       tuck: (o.tips && o.tips.tuck) || '',
       sleeves: (o.tips && o.tips.sleeves) || '',
+      hem: (o.tips && o.tips.hem) || '',
+      buttons: (o.tips && o.tips.buttons) || '',
       scarf: (o.tips && o.tips.scarf) || '',
+      shoes: (o.tips && o.tips.shoes) || '',
+      accessories: (o.tips && o.tips.accessories) || '',
       note: (o.tips && o.tips.note) || ''
     }
   };
@@ -1594,8 +1598,10 @@ function escHtml(t){ return (t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').r
 function escAttr(t){ return (t||'').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
 
 // ============ SUIVI CONSOMMATION TOKENS + PAIEMENTS ============
-// Tarifs Claude Sonnet (USD par million de tokens). Modifiables si les prix changent.
-const TOKEN_PRICES = { input: 3.0, output: 15.0 };  // $ / 1M tokens
+// Tarifs par modèle (USD par million de tokens). Modifiables si les prix changent.
+const TOKEN_PRICES = { input: 3.0, output: 15.0 };           // Sonnet (analyse, miroir, palette)
+const TOKEN_PRICES_OPUS = { input: 5.0, output: 25.0 };      // Opus 5 (génération de tenues)
+const OPUS_TASKS = ['generate', 'generate_incremental'];
 
 // Noms lisibles par type de demande
 const TASK_LABELS = {
@@ -1610,14 +1616,15 @@ const TASK_LABELS = {
 let usageLog = [];     // [{ date, task, label, inTok, outTok, cost }]
 let payments = [];     // [{ date, amount }]
 
-function estimateCost(inTok, outTok){
-  return (inTok/1e6)*TOKEN_PRICES.input + (outTok/1e6)*TOKEN_PRICES.output;
+function estimateCost(inTok, outTok, task){
+  const p = OPUS_TASKS.includes(task) ? TOKEN_PRICES_OPUS : TOKEN_PRICES;
+  return (inTok/1e6)*p.input + (outTok/1e6)*p.output;
 }
 
 async function recordUsage(task, usage){
   const inTok = usage.input_tokens || 0;
   const outTok = usage.output_tokens || 0;
-  const cost = estimateCost(inTok, outTok);
+  const cost = estimateCost(inTok, outTok, task);
   usageLog.unshift({
     date: new Date().toISOString(),
     task,
@@ -1711,7 +1718,7 @@ function renderUsage(){
     html += `<button class="data-btn danger-btn" onclick="clearUsage()">Vider l'historique de consommation</button>`;
   }
 
-  html += `<p class="prof-hint" style="margin-top:10px">Coûts estimés au tarif Sonnet (${fmtUsd2(TOKEN_PRICES.input)}/M entrée · ${fmtUsd2(TOKEN_PRICES.output)}/M sortie). Indicatif.</p>`;
+  html += `<p class="prof-hint" style="margin-top:10px">Coûts estimés — génération sur Opus 5 (${fmtUsd2(TOKEN_PRICES_OPUS.input)}/M · ${fmtUsd2(TOKEN_PRICES_OPUS.output)}/M), analyse/miroir/palette sur Sonnet (${fmtUsd2(TOKEN_PRICES.input)}/M · ${fmtUsd2(TOKEN_PRICES.output)}/M). Indicatif.</p>`;
   html += `</div>`;
   return html;
 }
@@ -2044,7 +2051,7 @@ async function loadExamplePrompt(){
 }
 
 // ============ VERSION APP (PWA) ============
-const APP_VERSION = '2.1';
+const APP_VERSION = '2.2';
 
 // ============ PHOTOS : IndexedDB ============
 // localStorage sature vite avec des images -> IndexedDB pour les photos de tenues.
@@ -2783,7 +2790,10 @@ function outfitCardHTML(o) {
   if (t.tuck) tips += `<div><b>Tuck :</b> ${t.tuck}</div>`;
   if (t.buttons) tips += `<div><b>Boutons :</b> ${t.buttons}</div>`;
   if (t.sleeves) tips += `<div><b>Manches :</b> ${t.sleeves}</div>`;
+  if (t.hem) tips += `<div><b>Ourlet / bas :</b> ${t.hem}</div>`;
   tips += `<div><b>Écharpe :</b> ${t.scarf || 'boucle lâche, pans inégaux qui pendent — jamais serré'}</div>`;
+  if (t.shoes) tips += `<div><b>Chaussures :</b> ${t.shoes}</div>`;
+  if (t.accessories) tips += `<div><b>Accessoires :</b> ${t.accessories}</div>`;
   const watchName = (wardrobe.find(w => w.id === watchId) || {}).name || 'Montre';
   tips += `<div><b>Montre :</b> ${watchName}${t.strap ? ' — ' + t.strap : ''}</div>`;
   tips += `<div><b>Chapeau :</b> ${hv.ok ? '✓ oui' : '✗ non'} — ${hv.why}</div>`;
