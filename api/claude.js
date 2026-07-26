@@ -53,21 +53,21 @@ Réponds UNIQUEMENT en JSON valide : { "tuck": "...", "sleeves": "...", "scarf":
 
   generate: {
     max_tokens: 8000,
-    instructions: `TÂCHE : on te donne la garde-robe complète de l'utilisateur (JSON : id, nom, type, couleur, matière, famille, passants). Compose le maximum de tenues EXCELLENTES et variées, en respectant SA palette et SON style ci-dessus, et en tenant compte de la couleur ET de la matière ET du contexte.
+    instructions: `TÂCHE : on te donne la garde-robe complète de l'utilisateur (JSON : id, nom, type, couleur, matière, famille, passants). Compose des tenues EXCELLENTES et variées, en respectant SA palette et SON style ci-dessus, et en tenant compte de la couleur ET de la matière ET du contexte.
 
-Vise 30 à 70 tenues réparties sur 4 niveaux (1=relax, 2=chic décontracté, 3=soirée, 4=cérémonie) et 3 vibes (jeune, inter, mur). Inclus du layering.
+Vise 15 à 30 tenues réparties sur 4 niveaux (1=relax, 2=chic décontracté, 3=soirée, 4=cérémonie) et 3 vibes (jeune, inter, mur). Inclus du layering. Garde descriptions et tips COURTS (une phrase max) pour tenir dans la réponse.
 
 Réponds UNIQUEMENT en JSON valide, sans préambule ni backticks. Schéma EXACT :
 { "outfits": [ {
   "name": "nom court", "level": 1, "vibe": "jeune",
-  "description": "une phrase : pièces + logique",
+  "description": "une phrase courte",
   "pieces": ["id1","id2"],
   "scarf": "id du foulard ou null",
   "watch": "kaki | acier | cuir",
   "hat": true,
-  "tips": { "tuck": "...", "sleeves": "...", "scarf": "...", "note": "le détail qui fait la différence" }
+  "tips": { "tuck": "court", "sleeves": "court", "scarf": "court", "note": "court" }
 } ] }
-N'utilise QUE les id de pièces réellement fournis dans la garde-robe. N'invente jamais d'id (montre, ceinture, etc.) : si un accessoire n'est pas dans la liste, ne le mets pas dans "pieces". Ceinture seulement si le bas a des passants (passants=true).`
+N'utilise QUE les id de pièces réellement fournis dans la garde-robe. N'invente jamais d'id (montre, ceinture, etc.). Ceinture seulement si le bas a des passants (passants=true).`
   },
 
   generate_incremental: {

@@ -1379,7 +1379,10 @@ async function generateAllOutfits() {
   const text = "Voici ma garde-robe complete (JSON). Compose le maximum de tenues excellentes et variees.\n\n" + JSON.stringify(payload);
   const raw = await callClaude('generate', { text });
   const data = parseJSONLoose(raw);
-  if (!data || !Array.isArray(data.outfits)) throw new Error('Reponse de generation illisible');
+  if (!data || !Array.isArray(data.outfits)) {
+    console.warn('Réponse génération:', raw);
+    throw new Error('Réponse illisible. Réessaie — si ça persiste, tu as peut-être trop de pièces pour un seul appel.');
+  }
 
   const kept = [], dropped = [];
   data.outfits.forEach((o, i) => {
@@ -1403,7 +1406,7 @@ async function generateForNewPieces(newIds) {
     + JSON.stringify(payload);
   const raw = await callClaude('generate_incremental', { text });
   const data = parseJSONLoose(raw);
-  if (!data || !Array.isArray(data.outfits)) throw new Error('Reponse illisible');
+  if (!data || !Array.isArray(data.outfits)) { console.warn('Réponse génération:', raw); throw new Error('Réponse illisible. Réessaie.'); }
 
   let added = 0;
   data.outfits.forEach((o, i) => {
@@ -1536,10 +1539,47 @@ async function callClaude(task, { image, mediaType, text } = {}) {
 // Extrait le JSON d'une reponse (au cas ou le modele ajoute du texte autour)
 function parseJSONLoose(txt) {
   if (!txt) return null;
-  let t = txt.trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
-  const a = t.indexOf('{'), b = t.lastIndexOf('}');
-  if (a !== -1 && b !== -1) t = t.slice(a, b + 1);
-  try { return JSON.parse(t); } catch (e) { return null; }
+  let t = txt.trim().replace(/^```(?:json)?/i, '').replace(/```\s*$/i, '').trim();
+  const a = t.indexOf('{');
+  if (a === -1) return null;
+  const b = t.lastIndexOf('}');
+  // 1) tentative directe
+  if (b !== -1) {
+    try { return JSON.parse(t.slice(a, b + 1)); } catch (e) {}
+  }
+  // 2) réparation d'un JSON tronqué (réponse coupée par max_tokens) :
+  //    on ferme les crochets/accolades ouverts et on retire une éventuelle dernière entrée partielle
+  let s = t.slice(a);
+  // retire une virgule + objet partiel en fin (ex: ...}, { "name": "Te )
+  s = s.replace(/,\s*\{[^}]*$/, '');
+  s = s.replace(/,\s*"[^"]*$/, '');
+  s = s.replace(/,\s*$/, '');
+  // équilibre les fermetures
+  let depth = 0, inStr = false, esc = false, out = '';
+  for (const ch of s) {
+    if (esc) { esc = false; out += ch; continue; }
+    if (ch === '\\') { esc = true; out += ch; continue; }
+    if (ch === '"') inStr = !inStr;
+    if (!inStr) {
+      if (ch === '{' || ch === '[') depth++;
+      if (ch === '}' || ch === ']') depth--;
+    }
+    out += ch;
+  }
+  // ferme ce qui reste ouvert, en devinant l'ordre depuis la fin
+  const stack = [];
+  inStr = false; esc = false;
+  for (const ch of out) {
+    if (esc) { esc = false; continue; }
+    if (ch === '\\') { esc = true; continue; }
+    if (ch === '"') inStr = !inStr;
+    if (inStr) continue;
+    if (ch === '{') stack.push('}');
+    else if (ch === '[') stack.push(']');
+    else if (ch === '}' || ch === ']') stack.pop();
+  }
+  while (stack.length) out += stack.pop();
+  try { return JSON.parse(out); } catch (e) { return null; }
 }
 
 // ============ PROFIL / PALETTE / PROMPT (multi-utilisateurs) ============
@@ -2004,7 +2044,7 @@ async function loadExamplePrompt(){
 }
 
 // ============ VERSION APP (PWA) ============
-const APP_VERSION = '2.0';
+const APP_VERSION = '2.1';
 
 // ============ PHOTOS : IndexedDB ============
 // localStorage sature vite avec des images -> IndexedDB pour les photos de tenues.
