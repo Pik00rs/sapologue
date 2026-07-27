@@ -1,5 +1,5 @@
 {
-  "version": "2.9",
+  "version": "3.0",
   "date": "2026-07-24",
-  "notes": "Version multi-utilisateurs blanche : profil, palette et prompt configurables par chacun"
+  "notes": "Multi-comptes sur le même appareil, génération locale 0 token, recherche dans les pièces, robustesse réseau"
 }

@@ -681,6 +681,13 @@
     border-radius: 10px; padding: 12px 14px;
   }
   .gen-count { font-size: 12px; color: var(--ink-soft); }
+.acct-list { display: flex; flex-direction: column; gap: 6px; }
+.acct-row { display: flex; align-items: center; gap: 6px; }
+.acct-pick { flex: 1; text-align: left; background: var(--bg); border: 1px solid var(--line-soft); border-radius: 10px; padding: 12px 14px; font-size: 14px; color: var(--ink); font-family: var(--sans); cursor: pointer; }
+.acct-row.on .acct-pick { border-color: var(--ink); font-weight: 600; }
+.acct-dot { margin-right: 6px; }
+.acct-cur { font-size: 11px; color: var(--ink-faded); font-weight: 400; }
+.acct-del { background: transparent; border: none; color: var(--ink-faded); cursor: pointer; font-size: 14px; padding: 8px; }
 .gap-analysis { background: var(--accent-soft); border-radius: 10px; padding: 14px 16px; font-size: 13px; line-height: 1.6; color: var(--ink); margin-bottom: 14px; }
 .gap-card { background: var(--bg-card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
 .gap-card-top { display: flex; align-items: center; gap: 10px; }
@@ -693,6 +700,9 @@
 .gap-meta { font-size: 11px; color: var(--ink-faded); font-family: var(--mono); margin: 6px 0 0 34px; }
 .gap-why { font-size: 13px; color: var(--ink-soft); line-height: 1.5; margin: 6px 0 0 34px; }
 .gap-pairs { font-size: 11px; color: var(--ink-faded); font-style: italic; margin: 6px 0 0 34px; }
+.wardrobe-search { width: 100%; padding: 11px 14px; border: 1px solid var(--line); border-radius: 10px; font-size: 14px; font-family: var(--sans); background: var(--bg-card); color: var(--ink); margin-bottom: 12px; }
+.wardrobe-search::placeholder { color: var(--ink-faded); }
+.gen-local-btn { width: 100%; margin-top: 8px; padding: 10px; background: var(--bg); color: var(--ink-soft); border: 1px dashed var(--line); border-radius: 100px; font-size: 13px; font-family: var(--sans); cursor: pointer; }
 .gen-more-btn {
     width: 100%; margin-top: 8px; padding: 10px;
     background: var(--accent-soft); color: var(--ink); border: none;
@@ -1221,7 +1231,7 @@
 <header class="app-header">
   <div class="header-top">
     <div class="brand">Garde-robe</div>
-    <div class="date" id="profileName" onclick="openProfile()" style="cursor:pointer">—</div>
+    <div class="date" id="profileName" onclick="openAccountMenu()" style="cursor:pointer">—</div>
   </div>
   <div class="tagline" id="tagline">ta garde-robe, ton style</div>
 </header>
@@ -1509,11 +1519,11 @@ function pruneOutfitsForRemovedPiece(pieceId) {
 }
 
 async function saveGenerated() {
-  await window.storage.set('generated', JSON.stringify(generatedOutfits));
+  await ST.set('generated', JSON.stringify(generatedOutfits));
 }
 async function loadGenerated() {
   try {
-    const r = await window.storage.get('generated');
+    const r = await ST.get('generated');
     generatedOutfits = r && r.value ? JSON.parse(r.value) : [];
   } catch (e) { generatedOutfits = []; }
   rebuildCatalog();
@@ -1521,9 +1531,9 @@ async function loadGenerated() {
 
 // File d'attente des pieces ajoutees non encore generees (regroupement)
 let pendingPieces = [];
-async function savePending() { await window.storage.set('pending', JSON.stringify(pendingPieces)); }
+async function savePending() { await ST.set('pending', JSON.stringify(pendingPieces)); }
 async function loadPending() {
-  try { const r = await window.storage.get('pending'); pendingPieces = r && r.value ? JSON.parse(r.value) : []; }
+  try { const r = await ST.get('pending'); pendingPieces = r && r.value ? JSON.parse(r.value) : []; }
   catch (e) { pendingPieces = []; }
 }
 
@@ -1532,62 +1542,37 @@ function generateOutfits_LOCAL() {
   const hauts = wardrobe.filter(w => w.category === 'haut');
   const bas = wardrobe.filter(w => w.category === 'bas');
   const chaussures = wardrobe.filter(w => w.category === 'chaussure');
-  const ceintureCognac = wardrobe.find(w => w.id === 'a3') ? 'a3' : null;
-  if (!hauts.length || !bas.length || !chaussures.length) return [];
+  if (!hauts.length || !bas.length) return [];
 
-  // Signatures deja couvertes par les tenues curatees
-  const seen = new Set(CURATED_OUTFITS.map(o => outfitSig(o.pieces)));
+  const belt = wardrobe.find(w => w.type === 'ceinture');
+  const existing = new Set(generatedOutfits.map(o => outfitSig(o.pieces)));
   const out = [];
-  const shoeUse = {};
-  chaussures.forEach(c => shoeUse[c.id] = 0);
-  let n = 0;
+  const shoeUse = {}; chaussures.forEach(c => shoeUse[c.id] = 0);
 
   hauts.forEach(top => {
     const tf = famOf(top);
-    // Le noir/anthracite ne se porte pas seul au visage -> exclu du generateur simple
-    if (tf === 'nk') return;
-
+    if (tf === 'nk') return;                       // noir seul au visage : exclu du generateur simple
     const basOk = bas.filter(b => compat(tf, famOf(b)));
-    // Max 3 bas par haut pour eviter l'explosion combinatoire
-    basOk.slice(0, 3).forEach(b => {
-      // chaussure la moins utilisee d'abord (repartition equilibree)
-      const sorted = chaussures.slice().sort((x, y) => shoeUse[x.id] - shoeUse[y.id]);
-      const shoe = sorted[0];
-      shoeUse[shoe.id]++;
-
-      const belt = (tuckableOf(b) && ceintureCognac) ? [ceintureCognac] : [];
-      const pieces = [top.id, b.id, ...belt, shoe.id, 'a5'];
+    basOk.slice(0, 4).forEach(b => {
+      let pieces = [top.id, b.id];
+      if (chaussures.length) {
+        const shoe = chaussures.slice().sort((x, y) => shoeUse[x.id] - shoeUse[y.id])[0];
+        shoeUse[shoe.id]++; pieces.push(shoe.id);
+      }
+      if (belt && tuckableOf(b)) pieces.push(belt.id);
       const sig = outfitSig(pieces);
-      if (seen.has(sig)) return;
-      seen.add(sig);
-
-      const level = TYPE_LEVEL[top.type] || 1;
-      const bf = famOf(b);
-      const vibe = level >= 2 ? (tf === 'wd' || tf === 'ol' ? 'mur' : 'inter')
-                              : (tf === 'co' || tf === 'cl' ? 'inter' : 'jeune');
-      n++;
-      out.push({
-        id: 'gen-' + n,
-        generated: true,
-        name: `${top.name} + ${b.name}`,
-        level,
-        vibe,
-        description: `${top.name} + ${b.name} + ${shoe.name}.`,
-        pieces,
-        scarf: scarfFor(tf),
-        shortSwap: null,
-        watch: watchFor(level, vibe),
-        hat: level <= 2,
-        tips: {
-          tuck: tuckTip(b, top.type),
-          sleeves: sleeveTip(top.type),
-          scarf: scarfFor(tf) === 'a2' ? "Tabac." : "Creme.",
-          note: harmonyNote(tf, bf, shoe.name)
-        }
-      });
+      if (existing.has(sig)) return;
+      existing.add(sig);
+      const level = (b.type === 'short') ? 1 : (top.type && top.type.startsWith('chemise')) ? 2 : 1;
+      out.push(normalizeOutfit({
+        name: (top.name || 'Haut') + ' + ' + (b.name || 'bas'),
+        level, vibe: 'inter',
+        description: 'Composition automatique (sans IA).',
+        pieces, scarf: null, watch: 'kaki', hat: false,
+        tips: { note: 'Tenue generee localement — pour des conseils de port detailles, utilise la generation IA.' }
+      }, out.length));
     });
   });
-
   return out;
 }
 
@@ -1595,12 +1580,59 @@ function generateOutfits_LOCAL() {
 // La cle API n'est jamais dans le navigateur : elle vit sur le serveur Vercel.
 const API_URL = '/api/claude';
 
+// ============ COMPTES (multi-profils sur le même appareil) ============
+// Chaque compte a son espace de stockage isolé : les clés sont préfixées par acct:<id>:.
+// Les métadonnées de comptes (liste + compte actif) restent en clés globales.
+let accounts = [];        // [{ id, name }]
+let activeAccountId = null;
+
+async function loadAccounts() {
+  try {
+    const r = await window.storage.get('accounts');
+    accounts = r && r.value ? JSON.parse(r.value) : [];
+  } catch (e) { accounts = []; }
+  try {
+    const a = await window.storage.get('activeAccount');
+    activeAccountId = a && a.value ? a.value : null;
+  } catch (e) { activeAccountId = null; }
+  // migration : si des données existent en clés non préfixées (ancienne version mono-compte),
+  // on crée un compte par défaut qui les adopte via un préfixe vide.
+  if (!accounts.length) {
+    let legacyName = 'Moi';
+    try { const p = await ST.get('profile'); if (p && p.value) { const pr = JSON.parse(p.value); if (pr && pr.name) legacyName = pr.name; } } catch(e){}
+    accounts = [{ id: '', name: legacyName }];   // id vide = pas de préfixe → reprend les données existantes
+    activeAccountId = '';
+    await saveAccounts();
+  }
+  if (activeAccountId === null || !accounts.some(a => a.id === activeAccountId)) {
+    activeAccountId = accounts[0].id;
+  }
+}
+async function saveAccounts() {
+  await window.storage.set('accounts', JSON.stringify(accounts));
+  await window.storage.set('activeAccount', activeAccountId);
+}
+function acctPrefix() { return activeAccountId ? ('acct:' + activeAccountId + ':') : ''; }
+
+// Wrapper de stockage préfixé par compte actif — remplace window.storage partout
+const ST = {
+  get: (k) => window.storage.get(acctPrefix() + k),
+  set: (k, v) => window.storage.set(acctPrefix() + k, v),
+  delete: (k) => window.storage.delete ? window.storage.delete(acctPrefix() + k) : Promise.resolve()
+};
+function acctPhotoKey(id) { return acctPrefix() + id; }   // clé photo IndexedDB préfixée
+
 async function callClaude(task, { image, mediaType, text } = {}) {
-  const r = await fetch(API_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ task, image, mediaType, text, stylePrompt: buildStylePrompt() })
-  });
+  let r;
+  try {
+    r = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task, image, mediaType, text, stylePrompt: buildStylePrompt() })
+    });
+  } catch (netErr) {
+    throw new Error('Pas de connexion — vérifie ton réseau et réessaie.');
+  }
   const d = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(d.error || 'Erreur ' + r.status);
   if (d.usage) await recordUsage(task, d.usage);   // suivi conso tokens
@@ -1701,14 +1733,14 @@ async function recordUsage(task, usage){
   await saveUsageLog();
 }
 
-async function saveUsageLog(){ await window.storage.set('usageLog', JSON.stringify(usageLog)); }
+async function saveUsageLog(){ await ST.set('usageLog', JSON.stringify(usageLog)); }
 async function loadUsageLog(){
-  try { const r = await window.storage.get('usageLog'); usageLog = r && r.value ? JSON.parse(r.value) : []; }
+  try { const r = await ST.get('usageLog'); usageLog = r && r.value ? JSON.parse(r.value) : []; }
   catch(e){ usageLog = []; }
 }
-async function savePayments(){ await window.storage.set('payments', JSON.stringify(payments)); }
+async function savePayments(){ await ST.set('payments', JSON.stringify(payments)); }
 async function loadPayments(){
-  try { const r = await window.storage.get('payments'); payments = r && r.value ? JSON.parse(r.value) : []; }
+  try { const r = await ST.get('payments'); payments = r && r.value ? JSON.parse(r.value) : []; }
   catch(e){ payments = []; }
 }
 
@@ -1850,24 +1882,82 @@ function migratePalette() {
   if (!userPalette.groups && !userPalette.families) userPalette.families = [];
 }
 
-async function saveProfile(){ await window.storage.set('profile', JSON.stringify(profile)); }
+async function saveProfile(){ await ST.set('profile', JSON.stringify(profile)); }
 async function loadProfile(){
-  try { const r = await window.storage.get('profile'); profile = r && r.value ? JSON.parse(r.value) : null; }
+  try { const r = await ST.get('profile'); profile = r && r.value ? JSON.parse(r.value) : null; }
   catch(e){ profile = null; }
 }
-async function saveUserStyle(){ await window.storage.set('stylePrompt', userStylePrompt || ''); }
+async function saveUserStyle(){ await ST.set('stylePrompt', userStylePrompt || ''); }
 async function loadUserStyle(){
-  try { const r = await window.storage.get('stylePrompt'); userStylePrompt = r && r.value ? r.value : ''; }
+  try { const r = await ST.get('stylePrompt'); userStylePrompt = r && r.value ? r.value : ''; }
   catch(e){ userStylePrompt = ''; }
 }
-async function saveUserPalette(){ await window.storage.set('palette', JSON.stringify(userPalette)); }
+async function saveUserPalette(){ await ST.set('palette', JSON.stringify(userPalette)); }
 async function loadUserPalette(){
-  try { const r = await window.storage.get('palette'); userPalette = r && r.value ? JSON.parse(r.value) : { families: [] }; }
+  try { const r = await ST.get('palette'); userPalette = r && r.value ? JSON.parse(r.value) : { families: [] }; }
   catch(e){ userPalette = { families: [] }; }
   migratePalette();
 }
 
 // ---- Onboarding : creer un profil au premier lancement ----
+// ============ MENU COMPTES ============
+function openAccountMenu() {
+  const rows = accounts.map(a => {
+    const on = a.id === activeAccountId;
+    return `<div class="acct-row ${on?'on':''}">
+      <button class="acct-pick" onclick="switchAccount('${a.id}')">
+        <span class="acct-dot">${on?'●':'○'}</span> ${escHtml(a.name)}${on?' <span class="acct-cur">(actuel)</span>':''}
+      </button>
+      ${accounts.length>1 ? `<button class="acct-del" onclick="deleteAccount('${a.id}')" title="Supprimer ce compte">✕</button>` : ''}
+    </div>`;
+  }).join('');
+  document.getElementById('modalContent').innerHTML = `
+    <div class="modal-handle"></div>
+    <div class="modal-name">Comptes</div>
+    <div class="modal-brand" style="margin-bottom:16px">plusieurs garde-robes sur cet appareil</div>
+    <div class="acct-list">${rows}</div>
+    <div class="actions" style="flex-direction:column;gap:8px;margin-top:16px">
+      <button class="btn primary" style="width:100%" onclick="addAccount()">+ Nouveau compte</button>
+      <button class="btn" style="width:100%" onclick="closeModal();goTab('profil')">Mon profil</button>
+      <button class="btn" style="width:100%;border:none;background:transparent" onclick="closeModal()">Fermer</button>
+    </div>`;
+  document.getElementById('modalBackdrop').classList.add('show');
+}
+
+async function switchAccount(id) {
+  if (id === activeAccountId) { closeModal(); return; }
+  activeAccountId = id;
+  await saveAccounts();
+  closeModal();
+  location.reload();   // recharge proprement toutes les données du nouveau compte
+}
+
+async function addAccount() {
+  const name = (prompt('Nom du nouveau compte :') || '').trim();
+  if (!name) return;
+  const id = 'a' + Date.now().toString(36);
+  accounts.push({ id, name });
+  activeAccountId = id;
+  await saveAccounts();
+  closeModal();
+  location.reload();   // démarre vide → onboarding du nouveau compte
+}
+
+async function deleteAccount(id) {
+  const acc = accounts.find(a => a.id === id);
+  if (!acc) return;
+  if (!confirm(`Supprimer le compte « ${acc.name} » et TOUTES ses données (pièces, tenues, palette) ? Irréversible.`)) return;
+  // purge des clés de ce compte
+  const pfx = id ? ('acct:' + id + ':') : '';
+  const keys = ['wardrobe','wardrobe_version','wishlist','skincare','generated','pending','packed','wearlog','profile','stylePrompt','palette','usageLog','payments','gapsResult'];
+  for (const k of keys) { try { await window.storage.delete(pfx + k); } catch(e){} }
+  accounts = accounts.filter(a => a.id !== id);
+  if (activeAccountId === id) activeAccountId = accounts[0].id;
+  await saveAccounts();
+  closeModal();
+  location.reload();
+}
+
 function openProfile() {
   const editing = !!profile;
   document.getElementById('modalContent').innerHTML = `
@@ -2118,7 +2208,7 @@ async function loadExamplePrompt(){
 }
 
 // ============ VERSION APP (PWA) ============
-const APP_VERSION = '2.9';
+const APP_VERSION = '3.0';
 
 // ============ PHOTOS : IndexedDB ============
 // localStorage sature vite avec des images -> IndexedDB pour les photos de tenues.
@@ -2140,7 +2230,7 @@ async function savePhoto(outfitId, dataUrl) {
     const db = await openPhotoDB();
     return new Promise((res, rej) => {
       const tx = db.transaction('photos', 'readwrite');
-      tx.objectStore('photos').put(dataUrl, outfitId);
+      tx.objectStore('photos').put(dataUrl, acctPhotoKey(outfitId));
       tx.oncomplete = () => res(true);
       tx.onerror = () => rej();
     });
@@ -2151,7 +2241,7 @@ async function loadPhoto(outfitId) {
     const db = await openPhotoDB();
     return new Promise((res) => {
       const tx = db.transaction('photos', 'readonly');
-      const r = tx.objectStore('photos').get(outfitId);
+      const r = tx.objectStore('photos').get(acctPhotoKey(outfitId));
       r.onsuccess = () => res(r.result || null);
       r.onerror = () => res(null);
     });
@@ -2162,7 +2252,7 @@ async function deletePhoto(outfitId) {
     const db = await openPhotoDB();
     return new Promise((res) => {
       const tx = db.transaction('photos', 'readwrite');
-      tx.objectStore('photos').delete(outfitId);
+      tx.objectStore('photos').delete(acctPhotoKey(outfitId));
       tx.oncomplete = () => res(true);
       tx.onerror = () => res(false);
     });
@@ -2175,9 +2265,15 @@ async function loadAllPhotos() {
       const tx = db.transaction('photos', 'readonly');
       const store = tx.objectStore('photos');
       const out = {};
+      const pfx = acctPrefix();
       const rk = store.getAllKeys(), rv = store.getAll();
       tx.oncomplete = () => {
-        (rk.result || []).forEach((k, i) => { out[k] = (rv.result || [])[i]; });
+        (rk.result || []).forEach((k, i) => {
+          // ne garder que les photos du compte actif ; retirer le préfixe pour la clé locale
+          const key = String(k);
+          if (pfx) { if (key.startsWith(pfx)) out[key.slice(pfx.length)] = (rv.result || [])[i]; }
+          else if (!key.startsWith('acct:')) out[key] = (rv.result || [])[i];
+        });
         res(out);
       };
       tx.onerror = () => res({});
@@ -2311,6 +2407,14 @@ let wishlist = [];
 let skincare = [];
 let currentTab = 'wardrobe';
 let currentFilter = 'all';
+let searchQuery = '';
+function setSearch(v) {
+  searchQuery = v;
+  render();
+  // re-render perd le focus : on le rend au champ, curseur en fin
+  const el = document.querySelector('.wardrobe-search');
+  if (el) { el.focus(); const n = el.value.length; try { el.setSelectionRange(n, n); } catch(e){} }
+}
 let skincareFilter = 'all';
 let wishlistFilter = 'all';
 let editingItem = null;
@@ -2321,7 +2425,7 @@ let shortMode = false;
 
 async function loadWardrobe() {
   try {
-    const versionResult = await window.storage.get('wardrobe_version');
+    const versionResult = await ST.get('wardrobe_version');
     const currentVersion = versionResult && versionResult.value ? versionResult.value : null;
 
     if (currentVersion !== WARDROBE_VERSION) {
@@ -2330,7 +2434,7 @@ async function loadWardrobe() {
       let oldWearsMap = {};
       let customItems = [];
       try {
-        const oldResult = await window.storage.get('wardrobe');
+        const oldResult = await ST.get('wardrobe');
         if (oldResult && oldResult.value) {
           const oldData = JSON.parse(oldResult.value);
           oldData.forEach(item => {
@@ -2348,7 +2452,7 @@ async function loadWardrobe() {
       // Préserve l'état purchased des items wishlist/skincare existants si déjà stockés
       let oldPurchasedW = {};
       try {
-        const oldWL = await window.storage.get('wishlist');
+        const oldWL = await ST.get('wishlist');
         if (oldWL && oldWL.value) {
           const oldWLData = JSON.parse(oldWL.value);
           oldWLData.forEach(item => {
@@ -2366,7 +2470,7 @@ async function loadWardrobe() {
 
       let oldPurchasedS = {};
       try {
-        const oldSK = await window.storage.get('skincare');
+        const oldSK = await ST.get('skincare');
         if (oldSK && oldSK.value) {
           const oldSKData = JSON.parse(oldSK.value);
           oldSKData.forEach(item => {
@@ -2380,9 +2484,9 @@ async function loadWardrobe() {
       }));
       await saveSkincare();
 
-      await window.storage.set('wardrobe_version', WARDROBE_VERSION);
+      await ST.set('wardrobe_version', WARDROBE_VERSION);
     } else {
-      const result = await window.storage.get('wardrobe');
+      const result = await ST.get('wardrobe');
       if (result && result.value) {
         wardrobe = JSON.parse(result.value);
       } else {
@@ -2390,7 +2494,7 @@ async function loadWardrobe() {
         await saveWardrobe();
       }
 
-      const wlResult = await window.storage.get('wishlist');
+      const wlResult = await ST.get('wishlist');
       if (wlResult && wlResult.value) {
         wishlist = JSON.parse(wlResult.value);
       } else {
@@ -2398,7 +2502,7 @@ async function loadWardrobe() {
         await saveWishlist();
       }
 
-      const skResult = await window.storage.get('skincare');
+      const skResult = await ST.get('skincare');
       if (skResult && skResult.value) {
         skincare = JSON.parse(skResult.value);
       } else {
@@ -2418,7 +2522,7 @@ async function loadWardrobe() {
 
 async function saveWardrobe() {
   try {
-    await window.storage.set('wardrobe', JSON.stringify(wardrobe));
+    await ST.set('wardrobe', JSON.stringify(wardrobe));
   } catch (e) {
     console.error('save wardrobe failed', e);
   }
@@ -2426,7 +2530,7 @@ async function saveWardrobe() {
 
 async function saveWishlist() {
   try {
-    await window.storage.set('wishlist', JSON.stringify(wishlist));
+    await ST.set('wishlist', JSON.stringify(wishlist));
   } catch (e) {
     console.error('save wishlist failed', e);
   }
@@ -2434,18 +2538,18 @@ async function saveWishlist() {
 
 async function saveSkincare() {
   try {
-    await window.storage.set('skincare', JSON.stringify(skincare));
+    await ST.set('skincare', JSON.stringify(skincare));
   } catch (e) {
     console.error('save skincare failed', e);
   }
 }
 
 async function savePacked() {
-  try { await window.storage.set('packed', JSON.stringify(packed)); } catch (e) { console.error('save packed failed', e); }
+  try { await ST.set('packed', JSON.stringify(packed)); } catch (e) { console.error('save packed failed', e); }
 }
 
 async function loadPacked() {
-  try { const r = await window.storage.get('packed'); packed = (r && r.value) ? JSON.parse(r.value) : []; } catch (e) { packed = []; }
+  try { const r = await ST.get('packed'); packed = (r && r.value) ? JSON.parse(r.value) : []; } catch (e) { packed = []; }
 }
 
 async function togglePurchased(id, type) {
@@ -2580,7 +2684,16 @@ function needsWash(item) {
 }
 
 function renderWardrobe() {
-  const filtered = currentFilter === 'all' ? wardrobe : wardrobe.filter(i => i.category === currentFilter);
+  let filtered = currentFilter === 'all' ? wardrobe : wardrobe.filter(i => i.category === currentFilter);
+  if (searchQuery) {
+    const q = searchQuery.toLowerCase();
+    filtered = filtered.filter(i =>
+      (i.name||'').toLowerCase().includes(q) ||
+      (i.brand||'').toLowerCase().includes(q) ||
+      (i.type||'').toLowerCase().includes(q) ||
+      (i.colorName||'').toLowerCase().includes(q)
+    );
+  }
   const needWashCount = wardrobe.filter(needsWash).length;
 
   if (wardrobe.length === 0) {
@@ -2618,6 +2731,8 @@ function renderWardrobe() {
 
     <button class="valise-toggle ${packingMode ? 'on' : ''}" onclick="togglePackingMode()">🧳 ${packingMode ? 'Terminer ma valise' : 'Préparer ma valise'}</button>
     ${packingMode ? `<div class="valise-banner">🧳 <b>${packed.length}</b> pièce${packed.length > 1 ? 's' : ''} dans la valise${packed.length ? ` · <button class="valise-clear" onclick="clearValise()">tout vider</button>` : ''}<div class="valise-hint">Touche les pièces pour les ajouter / retirer. Ensuite, dans l'onglet Aléatoire, active « Ma valise » pour ne tirer que des tenues faisables avec ce que tu emportes.</div></div>` : ''}
+
+    <input class="wardrobe-search" type="search" placeholder="🔍 Rechercher (nom, marque, type, couleur)…" value="${escAttr(searchQuery)}" oninput="setSearch(this.value)">
 
     <div class="filters">
       ${['all', 'haut', 'bas', 'surcouche', 'chaussure', 'accessoire'].map(f => `
@@ -2934,6 +3049,7 @@ function renderOutfits() {
       if (generatedOutfits.length > 0 && remaining > 0) {
         html += `<button class="gen-more-btn" onclick="runGenerateMore()">+ Générer plus de tenues</button>`;
       }
+      html += `<button class="gen-local-btn" onclick="runLocalGen()">⚡ Composer sans IA (gratuit)</button>`;
     }
     html += `</div>`;
   }
@@ -3530,6 +3646,18 @@ async function runGenerateMore() {
   }
 }
 
+// Génération LOCALE (0 token) : combine les pièces selon des règles simples
+async function runLocalGen() {
+  if (genBusy) return;
+  const made = generateOutfits_LOCAL();
+  if (!made.length) { alert("Pas assez de pièces compatibles pour composer sans IA (il faut au moins un haut et un bas)."); return; }
+  const existing = new Set(generatedOutfits.map(outfitSignature));
+  let added = 0;
+  made.forEach(o => { const sig = outfitSignature(o); if (!existing.has(sig)) { existing.add(sig); generatedOutfits.push(o); added++; } });
+  await saveGenerated(); rebuildCatalog(); render();
+  alert(`✓ ${added} tenue(s) composée(s) localement (0 token).\n\nPour des conseils de port détaillés, utilise la génération IA.`);
+}
+
 // ============ ANALYSE DES MANQUES (onglet À acheter) ============
 let gapsBusy = false;
 let gapsResult = null;   // { analysis, suggestions:[...] }
@@ -3544,7 +3672,7 @@ async function runAnalyzeGaps() {
     const d = parseJSONLoose(raw);
     if (!d || !Array.isArray(d.suggestions)) { console.warn('Réponse gaps:', raw); throw new Error('Réponse illisible. Réessaie.'); }
     gapsResult = d;
-    await window.storage.set('gapsResult', JSON.stringify(gapsResult));
+    await ST.set('gapsResult', JSON.stringify(gapsResult));
   } catch (e) {
     gapsBusy = false; render();
     alert("Échec de l'analyse : " + e.message);
@@ -3553,7 +3681,7 @@ async function runAnalyzeGaps() {
   gapsBusy = false; render();
 }
 async function loadGapsResult(){
-  try { const r = await window.storage.get('gapsResult'); gapsResult = r && r.value ? JSON.parse(r.value) : null; }
+  try { const r = await ST.get('gapsResult'); gapsResult = r && r.value ? JSON.parse(r.value) : null; }
   catch(e){ gapsResult = null; }
 }
 
@@ -3716,7 +3844,7 @@ async function recordWear(o) {
 }
 
 async function saveWearLog() {
-  await window.storage.set('wearlog', JSON.stringify(wearLog));
+  await ST.set('wearlog', JSON.stringify(wearLog));
 }
 
 async function deleteLogEntry(entryId) {
@@ -3938,7 +4066,7 @@ async function importData(input) {
     if (d.wardrobe) { wardrobe = d.wardrobe; await saveWardrobe(); }
     if (d.wishlist) { wishlist = d.wishlist; await saveWishlist(); }
     if (d.skincare) { skincare = d.skincare; await saveSkincare(); }
-    if (d.packed) { packed = d.packed; await window.storage.set('packed', JSON.stringify(packed)); }
+    if (d.packed) { packed = d.packed; await ST.set('packed', JSON.stringify(packed)); }
     if (d.wearLog) { wearLog = d.wearLog; await saveWearLog(); }
     if (d.photos) {
       for (const [k, v] of Object.entries(d.photos)) { if (v) await savePhoto(k, v); }
@@ -4026,6 +4154,7 @@ function render() {
 async function init() {
   document.getElementById('content').innerHTML = '<div class="loading">Chargement de ta garde-robe...</div>';
 
+  await loadAccounts();   // détermine le compte actif AVANT toute lecture de données
   await loadWardrobe();
   await loadPacked();
   await loadWearLog();
@@ -4063,7 +4192,7 @@ async function init() {
 
 async function loadWearLog() {
   try {
-    const r = await window.storage.get('wearlog');
+    const r = await ST.get('wearlog');
     wearLog = r && r.value ? JSON.parse(r.value) : [];
   } catch (e) { wearLog = []; }
 }
@@ -4148,7 +4277,7 @@ async function checkVersion() {
     if (d.version === APP_VERSION) {
       // on est à jour → bannière masquée + on mémorise
       hideUpdateBanner();
-      try { await window.storage.set('seenVersion', APP_VERSION); } catch(e){}
+      try { await ST.set('seenVersion', APP_VERSION); } catch(e){}
       return;
     }
     // version différente : nouvelle version dispo côté serveur.
