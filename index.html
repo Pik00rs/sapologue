@@ -2118,7 +2118,7 @@ async function loadExamplePrompt(){
 }
 
 // ============ VERSION APP (PWA) ============
-const APP_VERSION = '2.8';
+const APP_VERSION = '2.9';
 
 // ============ PHOTOS : IndexedDB ============
 // localStorage sature vite avec des images -> IndexedDB pour les photos de tenues.
@@ -4076,20 +4076,37 @@ async function applyUpdate() {
   if (_updating) return;
   _updating = true;
   const b = document.getElementById('updateBanner');
-  if (b) b.querySelector('span') && (b.querySelector('span').textContent = 'Mise à jour…');
+  const span = b && b.querySelector('span');
+  if (span) span.textContent = 'Mise à jour…';
+
+  // Filet de sécurité : si rien ne se passe en 4 s, on force le rechargement réseau
+  const hardReload = () => { try { location.replace(location.pathname + '?v=' + Date.now()); } catch(e){ location.reload(); } };
+  const failsafe = setTimeout(hardReload, 4000);
+
   try {
-    // 1) demander au SW en attente de prendre la main
-    if (_newWorker) _newWorker.postMessage({ type: 'SKIP_WAITING' });
-    const reg = await navigator.serviceWorker.getRegistration();
-    if (reg && reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-    // 2) purger les caches (au cas où l'ancien index.html y traîne)
-    if (window.caches && caches.keys) {
-      const keys = await caches.keys();
-      await Promise.all(keys.map(k => caches.delete(k)));
+    const reg = ('serviceWorker' in navigator) ? await navigator.serviceWorker.getRegistration() : null;
+    const waiting = reg && (reg.waiting || _newWorker);
+
+    if (waiting) {
+      // On recharge SEULEMENT quand le nouveau SW a pris le contrôle
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        clearTimeout(failsafe);
+        hardReload();
+      }, { once: true });
+      waiting.postMessage({ type: 'SKIP_WAITING' });
+    } else {
+      // Pas de SW en attente : on purge les caches et on recharge en réseau
+      if (window.caches && caches.keys) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k)));
+      }
+      clearTimeout(failsafe);
+      hardReload();
     }
-  } catch (e) {}
-  // 3) recharger depuis le réseau
-  location.reload();
+  } catch (e) {
+    clearTimeout(failsafe);
+    hardReload();
+  }
 }
 
 function showUpdateBanner() {
@@ -4117,13 +4134,6 @@ if ('serviceWorker' in navigator) {
       reg.update();
       setInterval(() => reg.update(), 30 * 60 * 1000);
     }).catch(() => {});
-
-    let refreshing = false;
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (refreshing) return;
-      refreshing = true;
-      location.reload();
-    });
   });
 }
 

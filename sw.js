@@ -6,7 +6,7 @@
    - version.json : jamais mis en cache (sert à détecter les mises à jour)
 */
 
-const CACHE = 'garde-robe-v2.6';
+const CACHE = 'garde-robe-v2.9';
 const ASSETS = [
   './',
   './index.html',
