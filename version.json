@@ -1,5 +1,5 @@
 {
-  "version": "3.0",
+  "version": "3.1",
   "date": "2026-07-24",
-  "notes": "Multi-comptes sur le même appareil, génération locale 0 token, recherche dans les pièces, robustesse réseau"
+  "notes": "Refonte visuelle : identite atelier (Bodoni/Jost/Plex Mono), logo bouton cousu, 3 ambiances (Creme & Tabac, Smoking, Riviera), correction du chargement des polices"
 }

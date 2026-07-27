@@ -6,29 +6,87 @@
 <title>Garde-robe</title>
 <meta name="description" content="Garde-robe digitale — old money mediterranean">
 <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#f5f1ea">
+<meta name="theme-color" content="#f4efe3">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Garde-robe">
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="icon" type="image/png" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,400;6..96,500;6..96,600;6..96,700&family=Jost:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
+  /* ============================================================
+     SYSTEME VISUEL — atelier de tailleur
+     Papier a patron (creme) + tabac. Motif signature : le point sellier
+     (pick-stitching), la couture main visible sur un revers.
+     ============================================================ */
   :root {
-    --bg: #f5f1ea;
-    --bg-card: #fdfaf4;
-    --ink: #2a2419;
-    --ink-soft: #6b5d4a;
-    --ink-faded: #a89880;
-    --accent: #8b5a2b;
-    --accent-soft: #c89968;
-    --line: #d9cdb8;
-    --line-soft: #ebe2cd;
-    --alert: #c44d2c;
-    --success: #6b8e4e;
-    --serif: 'Cormorant Garamond', 'Playfair Display', Georgia, serif;
-    --sans: 'Inter Tight', -apple-system, sans-serif;
-    --mono: 'JetBrains Mono', 'Courier New', monospace;
+    /* CREME & TABAC — la lumiere d'atelier, thème par defaut */
+    --bg: #f4efe3;
+    --bg-card: #fcf9f2;
+    --bg-sunk: #ede6d7;
+    --ink: #241c13;
+    --ink-soft: #6e6152;
+    --ink-faded: #a4947c;
+    --accent: #8a5a2b;
+    --accent-deep: #5e3d1c;
+    --accent-soft: #e6d7c0;
+    --line: #ddd1bc;
+    --line-soft: #ebe3d4;
+    --alert: #a8402a;
+    --success: #5e7355;
+    --shadow: 0 1px 2px rgba(36,28,19,.05), 0 8px 24px -12px rgba(36,28,19,.12);
+
+    --display: 'Bodoni Moda', 'Didot', Georgia, serif;
+    --serif: 'Bodoni Moda', 'Didot', Georgia, serif;
+    --sans: 'Jost', -apple-system, BlinkMacSystemFont, sans-serif;
+    --mono: 'IBM Plex Mono', ui-monospace, 'Courier New', monospace;
+
+    --r: 12px;      /* rayon standard */
+    --r-sm: 8px;
+  }
+
+  /* Sur fond accent, le texte suit le contraste du theme (l'or veut de l'encre sombre) */
+  body[data-theme="smoking"] .filter-chip.active,
+  body[data-theme="smoking"] .gen-pending button,
+  body[data-theme="smoking"] .purchase-btn.empty:hover { color: #1a1714; }
+
+  /* SMOKING — le noir cravate : veste de soiree, revers satin */
+  body[data-theme="smoking"] {
+    --bg: #1a1714;
+    --bg-card: #232019;
+    --bg-sunk: #14110f;
+    --ink: #f0e9dc;
+    --ink-soft: #b3a693;
+    --ink-faded: #7d7263;
+    --accent: #c9a227;
+    --accent-deep: #e0bd52;
+    --accent-soft: #3a3227;
+    --line: #383024;
+    --line-soft: #2b2620;
+    --alert: #d4694e;
+    --success: #8aa678;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -12px rgba(0,0,0,.5);
+  }
+
+  /* RIVIERA — lin et olive, le vestiaire de jour mediterraneen */
+  body[data-theme="riviera"] {
+    --bg: #f1efe4;
+    --bg-card: #faf9f3;
+    --bg-sunk: #e7e4d4;
+    --ink: #23271e;
+    --ink-soft: #5f6553;
+    --ink-faded: #979c85;
+    --accent: #6b6b3f;
+    --accent-deep: #4a4a2a;
+    --accent-soft: #dcdcc6;
+    --line: #d5d5c0;
+    --line-soft: #e6e5d7;
+    --alert: #9c4a2a;
+    --success: #5b7a4e;
+    --shadow: 0 1px 2px rgba(35,39,30,.05), 0 8px 24px -12px rgba(35,39,30,.14);
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -42,91 +100,121 @@
     -webkit-font-smoothing: antialiased;
   }
 
-  @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Inter+Tight:wght@300;400;500;600&family=JetBrains+Mono:wght@400&display=swap');
-
-  /* ===== HEADER ===== */
-  .app-header {
-    padding: 24px 20px 16px;
-    border-bottom: 1px solid var(--line);
-    background: var(--bg);
+  /* ===== HEADER — l'etiquette cousue dans la doublure ===== */
+  .topbar {
     position: sticky;
     top: 0;
     z-index: 50;
+    background: var(--bg);
+  }
+
+  .app-header {
+    padding: 18px 20px 14px;
+    background: var(--bg);
+    position: relative;
+    border-bottom: 1px solid var(--line);
+  }
+  /* point sellier : la couture main sous l'etiquette */
+  .app-header::after {
+    content: '';
+    position: absolute;
+    left: 20px; right: 20px; bottom: -1px;
+    height: 1px;
+    background: repeating-linear-gradient(90deg,
+      var(--accent) 0 7px, transparent 7px 15px);
+    opacity: .45;
   }
 
   .header-top {
     display: flex;
     justify-content: space-between;
-    align-items: baseline;
-    margin-bottom: 4px;
+    align-items: center;
+    gap: 12px;
   }
+
+  .brand-lockup { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .brand-mark { flex-shrink: 0; color: var(--accent); display: block; }
+  .brand-text { min-width: 0; }
 
   .brand {
-    font-family: var(--serif);
-    font-size: 28px;
+    font-family: var(--display);
+    font-size: 25px;
     font-weight: 500;
-    letter-spacing: -0.02em;
-    font-style: italic;
-  }
-
-  .date {
-    font-family: var(--mono);
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: var(--ink-faded);
+    letter-spacing: .005em;
+    line-height: 1;
+    color: var(--ink);
   }
 
   .tagline {
-    font-family: var(--serif);
-    font-size: 12px;
-    color: var(--ink-soft);
-    font-style: italic;
-    letter-spacing: 0.05em;
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 400;
+    color: var(--ink-faded);
+    letter-spacing: .22em;
+    text-transform: uppercase;
+    margin-top: 5px;
   }
+
+  /* nom du compte : la fiche client, cliquable */
+  .date {
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: .04em;
+    color: var(--ink-soft);
+    background: var(--bg-card);
+    border: 1px solid var(--line);
+    border-radius: 100px;
+    padding: 6px 13px;
+    flex-shrink: 0;
+    transition: border-color .18s, color .18s;
+  }
+  .date:active { border-color: var(--accent); color: var(--ink); }
 
   /* ===== NAV ===== */
   .nav {
     display: flex;
     gap: 0;
-    padding: 12px 20px;
+    padding: 10px 20px;
     border-bottom: 1px solid var(--line);
-    background: var(--bg-card);
+    background: var(--bg);
     overflow-x: auto;
     scrollbar-width: none;
-    position: sticky;
-    top: 87px;
-    z-index: 49;
   }
   .nav::-webkit-scrollbar { display: none; }
 
   .nav-item {
+    position: relative;
     flex-shrink: 0;
-    padding: 8px 14px;
-    margin-right: 4px;
+    padding: 7px 2px 9px;
+    margin-right: 20px;
     font-family: var(--sans);
     font-size: 11px;
     font-weight: 500;
     text-transform: uppercase;
-    letter-spacing: 0.12em;
-    color: var(--ink-soft);
+    letter-spacing: 0.14em;
+    color: var(--ink-faded);
     background: transparent;
-    border: 1px solid transparent;
-    border-radius: 100px;
+    border: none;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: color .18s;
     white-space: nowrap;
   }
-
-  .nav-item.active {
-    background: var(--ink);
-    color: var(--bg);
-    border-color: var(--ink);
+  .nav-item:last-child { margin-right: 0; }
+  .nav-item::after {
+    content: '';
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 2px;
+    background: repeating-linear-gradient(90deg,
+      var(--accent) 0 5px, transparent 5px 10px);
+    opacity: 0;
+    transition: opacity .18s;
   }
+  .nav-item.active { color: var(--ink); }
+  .nav-item.active::after { opacity: 1; }
 
-  .nav-item:not(.active):hover {
-    border-color: var(--line);
-  }
+  .nav-item:not(.active):hover { color: var(--ink-soft); }
 
   /* ===== MAIN ===== */
   main {
@@ -136,20 +224,22 @@
   }
 
   .section-title {
-    font-family: var(--serif);
-    font-size: 22px;
+    font-family: var(--display);
+    font-size: 27px;
     font-weight: 500;
-    letter-spacing: -0.01em;
-    margin-bottom: 6px;
+    letter-spacing: .002em;
+    line-height: 1.15;
+    margin-bottom: 7px;
   }
 
   .section-subtitle {
     font-family: var(--mono);
-    font-size: 9px;
+    font-size: 9.5px;
     text-transform: uppercase;
-    letter-spacing: 0.15em;
+    letter-spacing: 0.16em;
     color: var(--ink-faded);
-    margin-bottom: 20px;
+    margin-bottom: 22px;
+    line-height: 1.6;
   }
 
   /* ===== FILTERS ===== */
@@ -224,10 +314,10 @@
   .item-card {
     background: var(--bg-card);
     border: 1px solid var(--line-soft);
-    border-radius: 4px;
+    border-radius: var(--r-sm);
     overflow: hidden;
     cursor: pointer;
-    transition: all 0.25s;
+    transition: border-color .2s, transform .2s, box-shadow .2s;
     position: relative;
   }
 
@@ -379,25 +469,28 @@
   }
 
   .btn {
-    padding: 14px 16px;
+    padding: 13px 16px;
     font-family: var(--sans);
     font-size: 11px;
     font-weight: 500;
     text-transform: uppercase;
-    letter-spacing: 0.12em;
-    border-radius: 4px;
+    letter-spacing: 0.13em;
+    border-radius: var(--r-sm);
     cursor: pointer;
-    border: 1px solid var(--ink);
-    background: var(--bg);
+    border: 1px solid var(--line);
+    background: var(--bg-card);
     color: var(--ink);
     transition: all 0.2s;
     flex: 1;
   }
 
   .btn.primary {
-    background: var(--ink);
-    color: var(--bg);
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
   }
+  body[data-theme="smoking"] .btn.primary { color: #1a1714; }
+  body[data-theme="smoking"] .fab { color: #1a1714; }
 
   .btn.wash {
     background: var(--success);
@@ -484,9 +577,10 @@
   .outfit-card {
     background: var(--bg-card);
     border: 1px solid var(--line-soft);
-    border-radius: 6px;
+    border-radius: var(--r);
     padding: 20px;
-    margin-bottom: 16px;
+    margin-bottom: 14px;
+    box-shadow: var(--shadow);
   }
 
   .outfit-header {
@@ -681,6 +775,18 @@
     border-radius: 10px; padding: 12px 14px;
   }
   .gen-count { font-size: 12px; color: var(--ink-soft); }
+.theme-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.theme-card {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
+  background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-sm);
+  padding: 10px; cursor: pointer; text-align: left; font-family: var(--sans);
+  transition: border-color .18s;
+}
+.theme-card.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.theme-swatch { display: flex; width: 100%; height: 26px; border-radius: 5px; overflow: hidden; border: 1px solid var(--line-soft); }
+.theme-swatch span { flex: 1; }
+.theme-name { font-size: 11.5px; font-weight: 600; color: var(--ink); line-height: 1.2; }
+.theme-desc { font-family: var(--mono); font-size: 8.5px; text-transform: uppercase; letter-spacing: .1em; color: var(--ink-faded); line-height: 1.3; }
 .acct-list { display: flex; flex-direction: column; gap: 6px; }
 .acct-row { display: flex; align-items: center; gap: 6px; }
 .acct-pick { flex: 1; text-align: left; background: var(--bg); border: 1px solid var(--line-soft); border-radius: 10px; padding: 12px 14px; font-size: 14px; color: var(--ink); font-family: var(--sans); cursor: pointer; }
@@ -709,18 +815,19 @@
     border-radius: 100px; font-size: 13px; font-weight: 600; font-family: var(--sans); cursor: pointer;
   }
   .gen-btn {
-    background: var(--ink); color: var(--bg-card); border: none;
-    border-radius: 100px; padding: 8px 16px; font-size: 12px; font-weight: 600;
-    font-family: var(--sans); cursor: pointer; white-space: nowrap;
+    background: var(--accent); color: #fff; border: none;
+    border-radius: 100px; padding: 9px 17px; font-size: 12px; font-weight: 500;
+    font-family: var(--sans); letter-spacing: .02em; cursor: pointer; white-space: nowrap;
   }
+  body[data-theme="smoking"] .gen-btn { color: #1a1714; }
   .gen-pending {
     display: flex; align-items: center; justify-content: space-between; gap: 10px;
     background: var(--accent-soft); border-radius: 10px; padding: 12px 14px; margin-bottom: 8px;
   }
   .gen-pending span { font-size: 12px; color: var(--ink); }
   .gen-pending button {
-    background: var(--ink); color: var(--bg-card); border: none;
-    border-radius: 100px; padding: 7px 14px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap;
+    background: var(--accent); color: #fff; border: none;
+    border-radius: 100px; padding: 7px 14px; font-size: 12px; font-weight: 500; cursor: pointer; white-space: nowrap;
   }
   .gen-badge {
     font-size: 9px;
@@ -823,16 +930,21 @@
   }
   .data-btn {
     width: 100%;
-    padding: 12px;
-    margin-bottom: 10px;
-    border-radius: 100px;
+    padding: 12px 16px;
+    margin-bottom: 8px;
+    border-radius: var(--r-sm);
     border: 1px solid var(--line);
     background: var(--bg-card);
     color: var(--ink);
     font-size: 13px;
+    font-weight: 500;
     font-family: var(--sans);
+    letter-spacing: .01em;
     cursor: pointer;
+    transition: border-color .18s, background .18s;
   }
+  .data-btn:active { border-color: var(--accent); background: var(--bg-sunk); }
+  .data-btn[disabled] { opacity: .45; cursor: not-allowed; }
 
   .outfit-banner {
     display: flex; align-items: center; justify-content: space-between; gap: 10px;
@@ -1091,15 +1203,18 @@
     right: 20px;
     width: 56px;
     height: 56px;
-    background: var(--ink);
-    color: var(--bg);
+    background: var(--accent);
+    color: #fff;
+    border: none;
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    font-size: 24px;
-    box-shadow: 0 4px 16px rgba(42, 36, 25, 0.2);
+    font-size: 26px;
+    font-weight: 300;
+    line-height: 1;
+    box-shadow: 0 6px 20px -6px rgba(36,28,19,.45);
     z-index: 90;
     transition: all 0.2s;
   }
@@ -1188,10 +1303,12 @@
   /* loading state */
   .loading {
     text-align: center;
-    padding: 40px 20px;
+    padding: 48px 20px;
     color: var(--ink-faded);
-    font-family: var(--serif);
-    font-style: italic;
+    font-family: var(--mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: .18em;
   }
 
   .empty {
@@ -1228,12 +1345,27 @@
   <button onclick="applyUpdate()">Mettre à jour</button>
 </div>
 
+<div class="topbar">
 <header class="app-header">
   <div class="header-top">
-    <div class="brand">Garde-robe</div>
-    <div class="date" id="profileName" onclick="openAccountMenu()" style="cursor:pointer">—</div>
+    <div class="brand-lockup">
+      <!-- Marque : bouton de tailleur, cousu en croix -->
+      <svg class="brand-mark" width="30" height="30" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+        <circle cx="16" cy="16" r="13" stroke="currentColor" stroke-width="1.4"/>
+        <circle cx="16" cy="16" r="9.6" stroke="currentColor" stroke-width=".7" opacity=".45"/>
+        <path d="M12.6 12.6 19.4 19.4M19.4 12.6 12.6 19.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+        <circle cx="12.6" cy="12.6" r="1.5" fill="currentColor"/>
+        <circle cx="19.4" cy="12.6" r="1.5" fill="currentColor"/>
+        <circle cx="12.6" cy="19.4" r="1.5" fill="currentColor"/>
+        <circle cx="19.4" cy="19.4" r="1.5" fill="currentColor"/>
+      </svg>
+      <div class="brand-text">
+        <div class="brand">Garde-robe</div>
+        <div class="tagline" id="tagline">vestiaire</div>
+      </div>
+    </div>
+    <button class="date" id="profileName" onclick="openAccountMenu()">—</button>
   </div>
-  <div class="tagline" id="tagline">ta garde-robe, ton style</div>
 </header>
 
 <nav class="nav">
@@ -1245,6 +1377,7 @@
   <button class="nav-item" data-tab="wishlist">À acheter</button>
   <button class="nav-item" data-tab="profil">Profil</button>
 </nav>
+</div>
 
 <main id="content"></main>
 
@@ -1693,6 +1826,34 @@ let profDirty = false;
 // Palette en degrades : familles, chacune = liste de stops (couleurs) formant un degrade
 let userPalette = { families: [] }; // { families: [ { label, stops:[hex,...] } ] }
 
+// ============ THEMES ============
+const THEMES = [
+  { id:'creme',    name:'Crème & Tabac', desc:'lumière d\u2019atelier',  sw:['#f4efe3','#8a5a2b','#241c13'] },
+  { id:'smoking',  name:'Smoking',       desc:'noir cravate',          sw:['#1a1714','#c9a227','#f0e9dc'] },
+  { id:'riviera',  name:'Riviera',       desc:'lin et olive',          sw:['#f1efe4','#6b6b3f','#23271e'] }
+];
+let currentTheme = 'creme';
+
+function applyTheme(id) {
+  currentTheme = THEMES.some(t => t.id === id) ? id : 'creme';
+  document.body.dataset.theme = currentTheme;
+  // la barre d'etat mobile suit le fond du theme
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) {
+    const bg = getComputedStyle(document.body).getPropertyValue('--bg').trim();
+    if (bg) meta.setAttribute('content', bg);
+  }
+}
+async function setTheme(id) {
+  applyTheme(id);
+  try { await ST.set('theme', currentTheme); } catch(e){}
+  render();
+}
+async function loadTheme() {
+  try { const r = await ST.get('theme'); applyTheme(r && r.value ? r.value : 'creme'); }
+  catch(e){ applyTheme('creme'); }
+}
+
 function escHtml(t){ return (t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function escAttr(t){ return (t||'').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
 
@@ -1990,9 +2151,12 @@ async function saveProfileForm() {
 }
 function updateHeader() {
   const el = document.getElementById('profileName');
-  if (el) el.textContent = profile ? profile.name : '\u2014';
+  if (el) el.textContent = profile && profile.name ? profile.name : 'Compte';
   const tag = document.getElementById('tagline');
-  if (tag) tag.textContent = profile ? ('la garde-robe de ' + profile.name) : 'ta garde-robe, ton style';
+  if (tag) {
+    const n = wardrobe.length, t = generatedOutfits.length;
+    tag.textContent = n ? `${n} pièce${n>1?'s':''} · ${t} tenue${t>1?'s':''}` : 'vestiaire';
+  }
 }
 
 // ---- Edition palette (degrades) ----
@@ -2208,7 +2372,7 @@ async function loadExamplePrompt(){
 }
 
 // ============ VERSION APP (PWA) ============
-const APP_VERSION = '3.0';
+const APP_VERSION = '3.1';
 
 // ============ PHOTOS : IndexedDB ============
 // localStorage sature vite avec des images -> IndexedDB pour les photos de tenues.
@@ -2890,6 +3054,23 @@ function renderProfil() {
     <button class="data-btn danger-btn" onclick="wipeOutfits()">Vider toutes mes tenues</button>
     <button class="data-btn danger-btn" onclick="wipeAll()">Tout réinitialiser (pièces + tenues + journal)</button>
   </div>`;
+
+  // --- Apparence ---
+  html += `<div class="prof-card">
+    <div class="prof-card-title">Apparence</div>
+    <p class="prof-hint">Trois ambiances, même app.</p>
+    <div class="theme-grid">` +
+    THEMES.map(t => `
+      <button class="theme-card ${currentTheme===t.id?'on':''}" onclick="setTheme('${t.id}')">
+        <span class="theme-swatch">
+          <span style="background:${t.sw[0]}"></span>
+          <span style="background:${t.sw[1]}"></span>
+          <span style="background:${t.sw[2]}"></span>
+        </span>
+        <span class="theme-name">${t.name}</span>
+        <span class="theme-desc">${t.desc}</span>
+      </button>`).join('') +
+    `</div></div>`;
 
   // --- Consommation IA + paiements ---
   html += renderUsage();
@@ -4155,6 +4336,7 @@ async function init() {
   document.getElementById('content').innerHTML = '<div class="loading">Chargement de ta garde-robe...</div>';
 
   await loadAccounts();   // détermine le compte actif AVANT toute lecture de données
+  await loadTheme();      // applique l'ambiance choisie
   await loadWardrobe();
   await loadPacked();
   await loadWearLog();
