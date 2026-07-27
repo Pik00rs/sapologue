@@ -681,6 +681,18 @@
     border-radius: 10px; padding: 12px 14px;
   }
   .gen-count { font-size: 12px; color: var(--ink-soft); }
+.gap-analysis { background: var(--accent-soft); border-radius: 10px; padding: 14px 16px; font-size: 13px; line-height: 1.6; color: var(--ink); margin-bottom: 14px; }
+.gap-card { background: var(--bg-card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
+.gap-card-top { display: flex; align-items: center; gap: 10px; }
+.gap-swatch { width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--line); flex-shrink: 0; }
+.gap-name { font-size: 14px; font-weight: 600; color: var(--ink); flex: 1; }
+.gap-prio { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; padding: 3px 8px; border-radius: 100px; font-weight: 600; }
+.gp-hi { background: var(--alert); color: #fff; }
+.gp-mid { background: var(--accent-soft); color: var(--ink); }
+.gp-lo { background: var(--line-soft); color: var(--ink-soft); }
+.gap-meta { font-size: 11px; color: var(--ink-faded); font-family: var(--mono); margin: 6px 0 0 34px; }
+.gap-why { font-size: 13px; color: var(--ink-soft); line-height: 1.5; margin: 6px 0 0 34px; }
+.gap-pairs { font-size: 11px; color: var(--ink-faded); font-style: italic; margin: 6px 0 0 34px; }
 .gen-more-btn {
     width: 100%; margin-top: 8px; padding: 10px;
     background: var(--accent-soft); color: var(--ink); border: none;
@@ -1220,6 +1232,7 @@
   <button class="nav-item" data-tab="random">Aléatoire</button>
   <button class="nav-item" data-tab="mirror">Miroir</button>
   <button class="nav-item" data-tab="journal">Journal</button>
+  <button class="nav-item" data-tab="wishlist">À acheter</button>
   <button class="nav-item" data-tab="profil">Profil</button>
 </nav>
 
@@ -2105,7 +2118,7 @@ async function loadExamplePrompt(){
 }
 
 // ============ VERSION APP (PWA) ============
-const APP_VERSION = '2.4';
+const APP_VERSION = '2.5';
 
 // ============ PHOTOS : IndexedDB ============
 // localStorage sature vite avec des images -> IndexedDB pour les photos de tenues.
@@ -2987,72 +3000,47 @@ function renderRandom() {
 }
 
 function renderWishlist() {
-  const catLabels = { all: 'Tout', tee: 'Tee', chemise: 'Chemise', henley: 'Henley & autres', sweat: 'Sweat / maille', pantalon: 'Pantalon', short: 'Short', chaussure: 'Chaussures', accessoire: 'Accessoires', hygiene: 'Hygiène' };
-  const cats = ['all', 'tee', 'chemise', 'henley', 'sweat', 'pantalon', 'short', 'chaussure', 'accessoire', 'hygiene'];
-  // Liste de courses unifiée : wishlist vêtements + produits hygiène à racheter (tirés de l'onglet Hygiène)
-  let all = wishlist.map(w => ({ ...w, _cat: w.cat || 'accessoire', _type: 'wishlist' }));
-  skincare.forEach(s => {
-    if (!s.purchased) all.push({ id: s.id, emoji: s.emoji, name: s.name, detail: s.detail, price: s.price, priority: 'soon', tag: s.tag || 'À ACHETER', purchased: false, _cat: 'hygiene', _type: 'skincare' });
-  });
-  const F = wishlistFilter;
-  const sel = F === 'all' ? all : all.filter(i => i._cat === F);
-  const toBuy = sel.filter(w => !w.purchased);
-  const bought = sel.filter(w => w.purchased);
+  let html = `<h2 class="section-title">À acheter</h2>
+    <p class="section-subtitle">Claude analyse ta garde-robe et repère les pièces qui te manquent</p>`;
 
-  const chips = `<div class="filters">${cats.map(c => `<button class="filter-chip ${F === c ? 'active' : ''}" onclick="setWishlistFilter('${c}')">${catLabels[c]}</button>`).join('')}</div>`;
+  const nPieces = wardrobe.filter(w => ['haut','bas','surcouche','chaussure'].includes(w.category)).length;
 
-  return `
-    <h2 class="section-title">À acheter</h2>
-    <p class="section-subtitle">${toBuy.length} à acheter${bought.length ? ' · ' + bought.length + ' acquis' : ''}</p>
-    ${chips}
+  html += `<div class="prof-card">`;
+  if (gapsBusy) {
+    html += `<div class="ai-spin">Analyse de ta garde-robe… (Opus)</div>`;
+  } else {
+    html += `<p class="prof-hint">Claude regarde tes ${nPieces} pièce(s), ta palette et ton style, puis propose ce qui compléterait le mieux ta garde-robe (trous à combler, pièces qui débloquent le plus de tenues).</p>
+      <button class="data-btn" onclick="runAnalyzeGaps()" ${nPieces<2?'disabled':''}>${gapsResult?'↻ Ré-analyser':'🔍 Analyser ma garde-robe'}</button>`;
+    if (nPieces<2) html += `<p class="prof-hint" style="text-align:center">Ajoute d'abord quelques pièces.</p>`;
+  }
+  html += `</div>`;
 
-    ${['urgent', 'soon', 'later'].map(p => {
-      const items = toBuy.filter(w => w.priority === p);
-      if (items.length === 0) return '';
-      return `
-        <h3 style="font-family:var(--serif);font-size:15px;font-style:italic;margin:20px 0 10px;color:var(--ink-soft)">
-          ${p === 'urgent' ? '↘ Urgent' : p === 'soon' ? '· Court terme' : '· Plus tard'}
-        </h3>
-        ${items.map(item => `
-          <div class="wishlist-item">
-            <div class="wishlist-emoji">${item.emoji}</div>
-            <div class="wishlist-content">
-              <div class="wishlist-name">${item.name}</div>
-              <div style="margin: 4px 0;">
-                <span class="priority-tag priority-${item.priority}">${item.tag}</span>
-              </div>
-              <div class="wishlist-detail">${item.detail}</div>
-              <div class="wishlist-price">${item.price}</div>
-              <button class="purchase-btn" onclick="togglePurchased('${item.id}', '${item._type}')">
-                ☐ Acheté
-              </button>
-            </div>
-          </div>
-        `).join('')}
-      `;
-    }).join('')}
-
-    ${toBuy.length === 0 ? `<p style="color:var(--ink-faded);font-style:italic;margin:20px 0">Rien à acheter dans cette catégorie. ✓</p>` : ''}
-
-    ${bought.length > 0 ? `
-      <h3 style="font-family:var(--serif);font-size:15px;font-style:italic;margin:32px 0 10px;color:var(--ink-faded)">
-        ✓ Déjà acquis
-      </h3>
-      ${bought.map(item => `
-        <div class="wishlist-item purchased">
-          <div class="wishlist-emoji">${item.emoji}</div>
-          <div class="wishlist-content">
-            <div class="wishlist-name">${item.name}</div>
-            <div class="wishlist-detail">${item.detail}</div>
-            <button class="purchase-btn purchased" onclick="togglePurchased('${item.id}', '${item._type}')">
-              ☑ Acquis · annuler ?
-            </button>
-          </div>
+  if (gapsResult) {
+    if (gapsResult.analysis) {
+      html += `<div class="gap-analysis">${escHtml(gapsResult.analysis)}</div>`;
+    }
+    const prioRank = { haute:0, moyenne:1, basse:2 };
+    const sugg = (gapsResult.suggestions||[]).slice().sort((a,b)=>(prioRank[a.priority]??1)-(prioRank[b.priority]??1));
+    html += sugg.map(sg => {
+      const pr = sg.priority || 'moyenne';
+      const dot = pr==='haute' ? 'gp-hi' : pr==='basse' ? 'gp-lo' : 'gp-mid';
+      return `<div class="gap-card">
+        <div class="gap-card-top">
+          <span class="gap-swatch" style="background:${/^#[0-9a-fA-F]{6}$/.test(sg.color||'')?sg.color:'#ccc'}"></span>
+          <div class="gap-name">${escHtml(sg.name||'Pièce')}</div>
+          <span class="gap-prio ${dot}">${pr}</span>
         </div>
-      `).join('')}
-    ` : ''}
-  `;
+        <div class="gap-meta">${escHtml(sg.colorName||'')}${sg.material?' · '+escHtml(sg.material):''}</div>
+        ${sg.why?`<div class="gap-why">${escHtml(sg.why)}</div>`:''}
+        ${sg.pairsWith?`<div class="gap-pairs">Se marie avec : ${escHtml(sg.pairsWith)}</div>`:''}
+      </div>`;
+    }).join('');
+    html += `<p class="prof-hint" style="text-align:center;margin-top:12px">Suggestions indicatives — à toi de voir ce qui te tente.</p>`;
+  }
+
+  return html;
 }
+
 
 function renderSkincare() {
   const inStock = skincare.filter(s => s.purchased);
@@ -3525,6 +3513,33 @@ async function runGenerateMore() {
   }
 }
 
+// ============ ANALYSE DES MANQUES (onglet À acheter) ============
+let gapsBusy = false;
+let gapsResult = null;   // { analysis, suggestions:[...] }
+
+async function runAnalyzeGaps() {
+  if (gapsBusy) return;
+  gapsBusy = true; render();
+  try {
+    const payload = wardrobePayload();
+    const text = "Voici ma garde-robe complete (JSON). Analyse les manques et propose les pieces a acheter.\n\n" + JSON.stringify(payload);
+    const raw = await callClaude('gaps', { text });
+    const d = parseJSONLoose(raw);
+    if (!d || !Array.isArray(d.suggestions)) { console.warn('Réponse gaps:', raw); throw new Error('Réponse illisible. Réessaie.'); }
+    gapsResult = d;
+    await window.storage.set('gapsResult', JSON.stringify(gapsResult));
+  } catch (e) {
+    gapsBusy = false; render();
+    alert("Échec de l'analyse : " + e.message);
+    return;
+  }
+  gapsBusy = false; render();
+}
+async function loadGapsResult(){
+  try { const r = await window.storage.get('gapsResult'); gapsResult = r && r.value ? JSON.parse(r.value) : null; }
+  catch(e){ gapsResult = null; }
+}
+
 async function runIncrementalGen() {
   if (genBusy || !pendingPieces.length) return;
   const ids = pendingPieces.slice();
@@ -3963,6 +3978,10 @@ function render() {
       content.innerHTML = renderWardrobe();
       document.getElementById('fab').style.display = 'flex';
       break;
+    case 'wishlist':
+      content.innerHTML = renderWishlist();
+      document.getElementById('fab').style.display = 'none';
+      break;
     case 'profil':
       content.innerHTML = renderProfil();
       document.getElementById('fab').style.display = 'none';
@@ -4000,6 +4019,7 @@ async function init() {
   await loadUserPalette();
   await loadUsageLog();
   await loadPayments();
+  await loadGapsResult();
   photoCache = await loadAllPhotos();
   updateHeader();
 

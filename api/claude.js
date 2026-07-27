@@ -103,6 +103,32 @@ Réponds UNIQUEMENT en JSON valide, même schéma que la génération complète 
 N'utilise QUE les id fournis. N'invente jamais d'id.`
   },
 
+  gaps: {
+    max_tokens: 4000,
+    instructions: `TÂCHE : analyser la garde-robe de l'utilisateur (JSON fourni : id, nom, type, couleur, matière, famille, passants) et identifier les PIÈCES MANQUANTES les plus utiles à acheter, selon SA palette et SON style ci-dessus.
+
+Raisonne comme un styliste : quels trous dans la garde-robe ? Quelles pièces débloqueraient le plus de nouvelles tenues ? Qu'est-ce qui manque pour couvrir les différents niveaux (relax → soirée) ? Reste fidèle à sa palette et à ses matières.
+
+Propose 5 à 10 pièces, classées de la plus prioritaire à la moins. Pour chacune, sois précis (type, couleur dans sa palette, matière) et explique POURQUOI (ce que ça débloque, quel trou ça comble).
+
+Réponds UNIQUEMENT en JSON valide, sans préambule ni backticks :
+{
+  "analysis": "2-3 phrases : l'état de la garde-robe, ses forces et ses manques principaux",
+  "suggestions": [
+    {
+      "name": "ex: Chemise en lin blanc cassé",
+      "type": "ex: chemise-lin",
+      "color": "#rrggbb",
+      "colorName": "ex: blanc cassé",
+      "material": "ex: lin",
+      "priority": "haute | moyenne | basse",
+      "why": "une phrase : ce que ça débloque / le trou comblé",
+      "pairsWith": "avec quelles pièces existantes ça se combine (noms)"
+    }
+  ]
+}`
+  },
+
   palette: {
     max_tokens: 1500,
     instructions: `TÂCHE : l'utilisateur décrit sa palette (ambiance, couleurs qu'il aime, ce qu'il évite). Génère une palette structurée et riche, en tenant compte de son profil et de son style ci-dessus.
