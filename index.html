@@ -775,6 +775,29 @@
     border-radius: 10px; padding: 12px 14px;
   }
   .gen-count { font-size: 12px; color: var(--ink-soft); }
+/* ===== Ajustement de couleur (ajout de piece) ===== */
+.tuner { background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 12px; }
+.tuner-now { display: flex; align-items: center; gap: 11px; margin-bottom: 12px; }
+.tuner-chip { width: 46px; height: 46px; border-radius: 8px; border: 1px solid var(--line); flex-shrink: 0; }
+.tuner-hex { font-family: var(--mono); font-size: 13px; font-weight: 500; color: var(--ink); letter-spacing: .03em; }
+.tuner-cap { font-family: var(--mono); font-size: 8.5px; text-transform: uppercase; letter-spacing: .14em; color: var(--ink-faded); margin-top: 3px; }
+.tuner-fine { margin-left: auto; display: flex; flex-direction: column; align-items: center; gap: 5px;
+  font-family: var(--mono); font-size: 8px; text-transform: uppercase; letter-spacing: .1em; color: var(--ink-faded); cursor: pointer; }
+.tuner-fine input[type=color] { width: 30px; height: 30px; border: 1px solid var(--line); border-radius: 6px; padding: 0; background: none; cursor: pointer; }
+.tuner-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.tuner-btn { display: flex; flex-direction: column; align-items: center; gap: 5px;
+  background: var(--bg-card); border: 1px solid var(--line-soft); border-radius: 7px; padding: 7px 4px;
+  font-family: var(--sans); font-size: 9.5px; color: var(--ink-soft); cursor: pointer; transition: border-color .15s; }
+.tuner-btn:active { border-color: var(--accent); }
+.tuner-btn span { width: 100%; height: 22px; border-radius: 4px; border: 1px solid rgba(0,0,0,.06); }
+.tuner-pal-h { font-family: var(--mono); font-size: 8.5px; text-transform: uppercase; letter-spacing: .14em;
+  color: var(--ink-faded); margin: 13px 0 7px; }
+.tuner-pal { display: flex; flex-wrap: wrap; gap: 6px; }
+.tuner-pal-btn { display: flex; align-items: center; gap: 6px; background: var(--bg-card);
+  border: 1px solid var(--line-soft); border-radius: 100px; padding: 5px 11px 5px 5px;
+  font-family: var(--sans); font-size: 11px; color: var(--ink); cursor: pointer; }
+.tuner-pal-btn:active { border-color: var(--accent); }
+.tuner-pal-btn span { width: 18px; height: 18px; border-radius: 50%; border: 1px solid rgba(0,0,0,.08); }
 .theme-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .theme-card {
   display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
@@ -2372,7 +2395,7 @@ async function loadExamplePrompt(){
 }
 
 // ============ VERSION APP (PWA) ============
-const APP_VERSION = '3.1';
+const APP_VERSION = '3.2';
 
 // ============ PHOTOS : IndexedDB ============
 // localStorage sature vite avec des images -> IndexedDB pour les photos de tenues.
@@ -3696,6 +3719,97 @@ async function analyzeQueueItem(i){
   } catch(e){ it.status = 'error'; it.errMsg = e.message; }
 }
 
+// ============ AJUSTEMENT DE COULEUR (ajout de piece) ============
+// La couleur detectee au centre ; autour, des variantes a une touche.
+// Chaque touche recentre la grille : on converge vers la vraie couleur.
+function hexToHsl(hex) {
+  const r = parseInt(hex.slice(1,3),16)/255, g = parseInt(hex.slice(3,5),16)/255, b = parseInt(hex.slice(5,7),16)/255;
+  const mx = Math.max(r,g,b), mn = Math.min(r,g,b), d = mx-mn;
+  let h = 0;
+  if (d) {
+    if (mx===r) h = ((g-b)/d) % 6;
+    else if (mx===g) h = (b-r)/d + 2;
+    else h = (r-g)/d + 4;
+  }
+  h = Math.round(h*60); if (h<0) h += 360;
+  const l = (mx+mn)/2;
+  const sat = d === 0 ? 0 : d/(1-Math.abs(2*l-1));
+  return { h, s: Math.round(sat*100), l: Math.round(l*100) };
+}
+function hslToHex(h, s, l) {
+  h = ((h%360)+360)%360; s = Math.max(0,Math.min(100,s))/100; l = Math.max(0,Math.min(100,l))/100;
+  const c = (1-Math.abs(2*l-1))*s, x = c*(1-Math.abs((h/60)%2-1)), m = l-c/2;
+  let r=0,g=0,b=0;
+  if (h<60){r=c;g=x;} else if (h<120){r=x;g=c;} else if (h<180){g=c;b=x;}
+  else if (h<240){g=x;b=c;} else if (h<300){r=x;b=c;} else {r=c;b=x;}
+  const f = v => Math.round((v+m)*255).toString(16).padStart(2,'0');
+  return '#' + f(r) + f(g) + f(b);
+}
+
+function colorTunerHTML(hex) {
+  if (!/^#[0-9a-fA-F]{6}$/.test(hex||'')) hex = '#a37c4c';
+  const { h, s, l } = hexToHsl(hex);
+  // 6 ajustements : clarte, chaleur, intensite
+  const nudges = [
+    { hex: hslToHex(h, s, l+9),  lbl: 'plus clair' },
+    { hex: hslToHex(h, s, l-9),  lbl: 'plus foncé' },
+    { hex: hslToHex(h+9, s, l),  lbl: 'plus chaud' },
+    { hex: hslToHex(h-9, s, l),  lbl: 'plus froid' },
+    { hex: hslToHex(h, s+12, l), lbl: 'plus vif' },
+    { hex: hslToHex(h, s-12, l), lbl: 'plus gris' }
+  ];
+
+  let html = `<div class="tuner">
+    <div class="tuner-now">
+      <span class="tuner-chip" style="background:${hex}"></span>
+      <div>
+        <div class="tuner-hex">${hex.toUpperCase()}</div>
+        <div class="tuner-cap">couleur retenue</div>
+      </div>
+      <label class="tuner-fine">
+        réglage fin
+        <input type="color" id="rv-color" value="${hex}" onchange="setPieceColor(this.value)">
+      </label>
+    </div>
+    <div class="tuner-grid">` +
+    nudges.map(n => `<button type="button" class="tuner-btn" onclick="setPieceColor('${n.hex}')">
+        <span style="background:${n.hex}"></span>${n.lbl}
+      </button>`).join('') +
+    `</div>`;
+
+  // Raccourcis : les couleurs de la palette les plus proches
+  const near = nearestPaletteColors(hex, 4);
+  if (near.length) {
+    html += `<div class="tuner-pal-h">Dans ta palette</div><div class="tuner-pal">` +
+      near.map(n => `<button type="button" class="tuner-pal-btn" onclick="setPieceColor('${n.hex}')">
+        <span style="background:${n.hex}"></span>${escHtml(n.name)}
+      </button>`).join('') + `</div>`;
+  }
+  return html + `</div>`;
+}
+
+// Les couleurs nommees de la palette les plus proches (une nuance par couleur)
+function nearestPaletteColors(hex, max) {
+  const out = [];
+  paletteGroups().forEach(g => (g.colors||[]).forEach(c => {
+    let best = null;
+    (c.stops||[]).forEach(st => {
+      if (!/^#[0-9a-fA-F]{6}$/.test(st)) return;
+      const d = colorDist(hex, st);
+      if (!best || d < best.d) best = { d, hex: st };
+    });
+    if (best) out.push({ name: c.name, hex: best.hex, d: best.d });
+  }));
+  return out.sort((a,b) => a.d - b.d).slice(0, max);
+}
+
+// Applique une couleur a la piece en cours de revue, puis redessine
+function setPieceColor(hex) {
+  stashAddReview();                 // conserve les autres champs deja saisis
+  addQueue[addIndex].color = hex;
+  renderAddReview();
+}
+
 // Revue / correction d'une pièce de la file
 function renderAddReview(){
   const n = addQueue.length;
@@ -3711,11 +3825,10 @@ function renderAddReview(){
     <div class="form-group"><label class="form-label">Nom</label>
       <input class="form-input" id="rv-name" value="${escAttr(it.name)}" placeholder="Ex : Chemise lin écru"></div>
 
-    <div class="form-group"><label class="form-label">Couleur</label>
-      <div class="color-picker-row">
-        <input type="color" id="rv-color" value="${it.color}">
-        <input class="form-input" id="rv-color-text" value="${it.color}">
-      </div></div>
+    <div class="form-group">
+      <label class="form-label">Couleur détectée — touche pour ajuster</label>
+      ${colorTunerHTML(it.color)}
+    </div>
 
     <div class="form-group"><label class="form-label">Type</label>
       <select class="form-select" id="rv-type">${typeOpts}</select></div>
@@ -3735,9 +3848,6 @@ function renderAddReview(){
         : '<button class="btn primary" onclick="commitAddQueue()">Tout ajouter</button>'}
     </div>
     <p style="font-size:11px;color:var(--ink-faded);text-align:center;margin-top:10px">${n} pièce(s) — ajoutées ensemble à la fin</p>`;
-
-  document.getElementById('rv-color').addEventListener('input', e => document.getElementById('rv-color-text').value = e.target.value);
-  document.getElementById('rv-color-text').addEventListener('input', e => document.getElementById('rv-color').value = e.target.value);
 }
 
 // Sauvegarde les champs édités de la pièce courante
