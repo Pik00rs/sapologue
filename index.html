@@ -2118,7 +2118,7 @@ async function loadExamplePrompt(){
 }
 
 // ============ VERSION APP (PWA) ============
-const APP_VERSION = '2.5';
+const APP_VERSION = '2.6';
 
 // ============ PHOTOS : IndexedDB ============
 // localStorage sature vite avec des images -> IndexedDB pour les photos de tenues.
@@ -4053,11 +4053,25 @@ async function loadWearLog() {
 
 // ============ PWA : service worker + mise a jour ============
 let _newWorker = null;
+let _updating = false;
 
-function applyUpdate() {
-  if (_newWorker) {
-    _newWorker.postMessage({ type: 'SKIP_WAITING' });
-  }
+async function applyUpdate() {
+  if (_updating) return;
+  _updating = true;
+  const b = document.getElementById('updateBanner');
+  if (b) b.querySelector('span') && (b.querySelector('span').textContent = 'Mise à jour…');
+  try {
+    // 1) demander au SW en attente de prendre la main
+    if (_newWorker) _newWorker.postMessage({ type: 'SKIP_WAITING' });
+    const reg = await navigator.serviceWorker.getRegistration();
+    if (reg && reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+    // 2) purger les caches (au cas où l'ancien index.html y traîne)
+    if (window.caches && caches.keys) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+    }
+  } catch (e) {}
+  // 3) recharger depuis le réseau
   location.reload();
 }
 
@@ -4065,11 +4079,14 @@ function showUpdateBanner() {
   const b = document.getElementById('updateBanner');
   if (b) b.classList.add('show');
 }
+function hideUpdateBanner() {
+  const b = document.getElementById('updateBanner');
+  if (b) b.classList.remove('show');
+}
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js').then(reg => {
-      // Nouvelle version detectee pendant la session
       reg.addEventListener('updatefound', () => {
         const nw = reg.installing;
         if (!nw) return;
@@ -4080,7 +4097,6 @@ if ('serviceWorker' in navigator) {
           }
         });
       });
-      // Verifie les mises a jour au lancement et toutes les 30 min
       reg.update();
       setInterval(() => reg.update(), 30 * 60 * 1000);
     }).catch(() => {});
@@ -4094,13 +4110,27 @@ if ('serviceWorker' in navigator) {
   });
 }
 
-// Compare version.json au numero embarque (banniere meme sans SW)
+// Compare version.json au numero embarque. La banniere ne s'affiche que si une
+// version PLUS RECENTE existe ET qu'on ne vient pas déjà de la voir passer.
 async function checkVersion() {
   try {
     const r = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
     if (!r.ok) return;
     const d = await r.json();
-    if (d.version && d.version !== APP_VERSION) showUpdateBanner();
+    if (!d.version) return;
+    if (d.version === APP_VERSION) {
+      // on est à jour → bannière masquée + on mémorise
+      hideUpdateBanner();
+      try { await window.storage.set('seenVersion', APP_VERSION); } catch(e){}
+      return;
+    }
+    // version différente : nouvelle version dispo côté serveur.
+    // On n'affiche que si le SW peut réellement basculer (sinon message trompeur permanent).
+    if ('serviceWorker' in navigator) {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (reg) { try { reg.update(); } catch(e){} }
+    }
+    showUpdateBanner();
   } catch (e) {}
 }
 checkVersion();
