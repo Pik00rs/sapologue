@@ -2118,7 +2118,7 @@ async function loadExamplePrompt(){
 }
 
 // ============ VERSION APP (PWA) ============
-const APP_VERSION = '2.6';
+const APP_VERSION = '2.7';
 
 // ============ PHOTOS : IndexedDB ============
 // localStorage sature vite avec des images -> IndexedDB pour les photos de tenues.
@@ -2847,10 +2847,16 @@ function outfitCardHTML(o) {
     return `<div class="outfit-piece"><div class="piece-swatch" style="background:${color}"></div><span>${name}</span></div>`;
   }).join('');
   let controls = '<div class="opt-row">';
-  controls += `<label class="opt-chip"><input type="checkbox" ${op.scarf ? 'checked' : ''} onchange="toggleOpt('${o.id}','scarf',this.checked)"> 🧣 Écharpe</label>`;
+  const _ownsScarf = wardrobe.some(w => w.type === 'foulard');
+  const _ownsHat = wardrobe.some(w => w.type === 'chapeau');
+  const _watchCount = wardrobe.filter(w => w.type === 'montre').length;
+  if (_ownsScarf) controls += `<label class="opt-chip"><input type="checkbox" ${op.scarf ? 'checked' : ''} onchange="toggleOpt('${o.id}','scarf',this.checked)"> 🧣 Écharpe</label>`;
   if (o.shortSwap) controls += `<label class="opt-chip"><input type="checkbox" ${op.short ? 'checked' : ''} onchange="toggleOpt('${o.id}','short',this.checked)"> 🩳 Short</label>`;
-  if (hv.ok) controls += `<label class="opt-chip"><input type="checkbox" ${op.hat ? 'checked' : ''} onchange="toggleOpt('${o.id}','hat',this.checked)"> 👒 Panama</label>`;
-  controls += `<span class="strap-toggle">⌚ <button class="${op.strap === 'kaki' ? 'on' : ''}" onclick="setStrap('${o.id}','kaki')">NATO</button><button class="${op.strap === 'acier' ? 'on' : ''}" onclick="setStrap('${o.id}','acier')">Acier</button><button class="${op.strap === 'cuir' ? 'on' : ''}" onclick="setStrap('${o.id}','cuir')">Cuir</button></span>`;
+  if (_ownsHat && hv.ok) controls += `<label class="opt-chip"><input type="checkbox" ${op.hat ? 'checked' : ''} onchange="toggleOpt('${o.id}','hat',this.checked)"> 👒 Chapeau</label>`;
+  // Sélecteur de bracelet : seulement si l'utilisateur a plusieurs montres (sinon inutile)
+  if (_watchCount > 1) {
+    controls += `<span class="strap-toggle">⌚ <button class="${op.strap === 'kaki' ? 'on' : ''}" onclick="setStrap('${o.id}','kaki')">NATO</button><button class="${op.strap === 'acier' ? 'on' : ''}" onclick="setStrap('${o.id}','acier')">Acier</button><button class="${op.strap === 'cuir' ? 'on' : ''}" onclick="setStrap('${o.id}','cuir')">Cuir</button></span>`;
+  }
   controls += '</div>';
   const t = o.tips || {};
   let tips = '<div class="tips">';
@@ -2858,12 +2864,22 @@ function outfitCardHTML(o) {
   if (t.buttons) tips += `<div><b>Boutons :</b> ${t.buttons}</div>`;
   if (t.sleeves) tips += `<div><b>Manches :</b> ${t.sleeves}</div>`;
   if (t.hem) tips += `<div><b>Ourlet / bas :</b> ${t.hem}</div>`;
-  tips += `<div><b>Écharpe :</b> ${t.scarf || 'boucle lâche, pans inégaux qui pendent — jamais serré'}</div>`;
+  // Accessoires : uniquement si l'utilisateur possède le type concerné dans sa garde-robe
+  const ownsScarf = wardrobe.some(w => w.type === 'foulard');
+  const ownsWatch = wardrobe.some(w => w.type === 'montre');
+  const ownsHat = wardrobe.some(w => w.type === 'chapeau');
+  if (ownsScarf && (t.scarf || scarfId)) {
+    tips += `<div><b>Écharpe :</b> ${t.scarf || 'boucle lâche, pans inégaux qui pendent — jamais serré'}</div>`;
+  }
   if (t.shoes) tips += `<div><b>Chaussures :</b> ${t.shoes}</div>`;
   if (t.accessories) tips += `<div><b>Accessoires :</b> ${t.accessories}</div>`;
-  const watchName = (wardrobe.find(w => w.id === watchId) || {}).name || 'Montre';
-  tips += `<div><b>Montre :</b> ${watchName}${t.strap ? ' — ' + t.strap : ''}</div>`;
-  tips += `<div><b>Chapeau :</b> ${hv.ok ? '✓ oui' : '✗ non'} — ${hv.why}</div>`;
+  if (ownsWatch) {
+    const watchName = (wardrobe.find(w => w.id === watchId) || wardrobe.find(w => w.type === 'montre') || {}).name || 'Montre';
+    tips += `<div><b>Montre :</b> ${watchName}${t.strap ? ' — ' + t.strap : ''}</div>`;
+  }
+  if (ownsHat) {
+    tips += `<div><b>Chapeau :</b> ${hv.ok ? '✓ oui' : '✗ non'} — ${hv.why}</div>`;
+  }
   if (t.note) tips += `<div><b>+</b> ${t.note}</div>`;
   tips += '</div>';
   const scarfName = (wardrobe.find(w => w.id === scarfId) || {}).name || '';

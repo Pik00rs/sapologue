@@ -89,7 +89,7 @@ Réponds UNIQUEMENT en JSON valide, sans préambule ni backticks. Schéma EXACT 
     "note": "..."
   }
 } ] }
-N'utilise QUE les id de pièces réellement fournis dans la garde-robe. N'invente jamais d'id (montre, ceinture, etc.). Ceinture seulement si le bas a des passants (passants=true).`
+N'utilise QUE les id de pièces réellement fournis dans la garde-robe. N'invente jamais d'id (montre, ceinture, etc.). Ceinture seulement si le bas a des passants (passants=true). IMPORTANT : ne donne de conseil sur une écharpe/foulard, une montre, un chapeau ou une ceinture QUE si ce type de pièce est présent dans la garde-robe fournie ; sinon laisse ces champs vides. Ne suggère jamais un accessoire que l'utilisateur ne possède pas.`
   },
 
   generate_incremental: {
