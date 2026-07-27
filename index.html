@@ -2118,7 +2118,7 @@ async function loadExamplePrompt(){
 }
 
 // ============ VERSION APP (PWA) ============
-const APP_VERSION = '2.7';
+const APP_VERSION = '2.8';
 
 // ============ PHOTOS : IndexedDB ============
 // localStorage sature vite avec des images -> IndexedDB pour les photos de tenues.
@@ -2817,7 +2817,8 @@ function outfitScarf(o) {
   return COOL_TOPS.includes(top) ? 'a2' : 'a6';
 }
 function outfitHasShort(o) {
-  if (o.shortSwap) return true;
+  // short "réel" = short présent comme pièce de base de la tenue.
+  // (shortSwap est une simple OPTION de remplacement du pantalon : la tenue de base reste en pantalon.)
   return o.pieces.some(pid => { const p = wardrobe.find(w => w.id === pid); return p && p.type === 'short'; });
 }
 function hatVerdict(o) {
@@ -3665,7 +3666,7 @@ function rollOutfit() {
     (selectedLevels.length === 0 || selectedLevels.includes(o.level)) &&
     (selectedVibes.length === 0 || selectedVibes.includes(o.vibe)) &&
     (!valiseOnly || outfitInValise(o)) &&
-    (!shortMode || outfitHasShort(o)) &&
+    (shortMode ? (outfitHasShort(o) || !!o.shortSwap) : !outfitHasShort(o)) &&
     randomInclude.every(pid => outfitHasPiece(o, pid)) &&
     randomExclude.every(pid => !outfitHasPiece(o, pid))
   );
